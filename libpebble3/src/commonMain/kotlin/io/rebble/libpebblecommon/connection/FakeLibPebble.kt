@@ -28,6 +28,7 @@ import io.rebble.libpebblecommon.database.entity.ChannelItem
 import io.rebble.libpebblecommon.database.entity.HRMonitoringInterval
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.HealthGender
+import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.MuteState
 import io.rebble.libpebblecommon.database.entity.NotificationAppItem
 import io.rebble.libpebblecommon.database.entity.NotificationEntity
@@ -87,6 +88,8 @@ class FakeLibPebble : LibPebble {
 
     override val watches: PebbleDevices = MutableStateFlow(fakeWatches())
     override val connectionEvents: Flow<PebbleConnectionEvent> = MutableSharedFlow()
+
+    override suspend fun getKnownWatches(): List<KnownWatchItem> = emptyList()
 
     override fun watchesDebugState(): String {
         return ""
@@ -475,6 +478,10 @@ class FakeLibPebble : LibPebble {
     }
 
     override suspend fun getLatestTimestamp(): Long? = 0
+
+    override suspend fun getAllHealthData(): List<HealthDataEntity> = emptyList()
+
+    override suspend fun getAllOverlayEntries(): List<OverlayDataEntity> = emptyList()
 
     override suspend fun getHealthDataAfter(afterTimestamp: Long): List<HealthDataEntity> = emptyList()
 

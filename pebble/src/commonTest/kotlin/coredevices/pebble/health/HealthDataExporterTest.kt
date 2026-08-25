@@ -1,13 +1,34 @@
 package coredevices.pebble.health
 
+import io.rebble.libpebblecommon.connection.FakeLibPebble
+import io.rebble.libpebblecommon.connection.LibPebble
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.database.entity.TransportType
 import kotlin.test.Test
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.koin.core.module.dsl.singleOf
+import org.koin.dsl.koinApplication
+import org.koin.dsl.module
 
 class HealthDataExporterTest {
+    @Test
+    fun exporterResolvesFromApplicationKoin() {
+        val application = koinApplication {
+            modules(
+                module {
+                    single<LibPebble> { FakeLibPebble() }
+                    singleOf(::HealthDataExporter)
+                },
+            )
+        }
+
+        assertNotNull(application.koin.get<HealthDataExporter>())
+        application.close()
+    }
+
     @Test
     fun exportIsOrderedAndIncludesRawContext() {
         val output = HealthDataExportFormatter.format(
