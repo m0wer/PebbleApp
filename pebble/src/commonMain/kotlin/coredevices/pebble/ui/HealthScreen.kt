@@ -34,7 +34,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,9 +46,11 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import co.touchlab.kermit.Logger
 import io.rebble.libpebblecommon.health.HealthTimeRange
 import io.rebble.libpebblecommon.connection.AppContext
 import io.rebble.libpebblecommon.util.getTempFilePath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +61,8 @@ import kotlinx.io.writeString
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
+
+private val healthExportLogger = Logger.withTag("HealthExport")
 
 @Composable
 fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
@@ -69,6 +76,8 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
     val shareLauncher = koinInject<PlatformShareLauncher>()
     val appContext = koinInject<AppContext>()
     val scope = rememberCoroutineScope()
+    var exportError by remember { mutableStateOf<String?>(null) }
+    var isExporting by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         topBarParams.title("Health")
@@ -106,27 +115,52 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
             TextButton(
                 onClick = {
                     scope.launch {
-                        val json = vm.exportRawData()
-                        val file = withContext(Dispatchers.Default) {
-                            getTempFilePath(appContext, "pebble-health-export-v1.json").also {
-                                SystemFileSystem.sink(it, append = false).buffered().use { sink ->
-                                    sink.writeString(json)
+                        exportError = null
+                        isExporting = true
+                        try {
+                            val file = withContext(Dispatchers.Default) {
+                                val json = vm.exportRawData()
+                                getTempFilePath(
+                                    appContext,
+                                    "pebble-health-export-v1.json",
+                                    HEALTH_EXPORT_CACHE_DIRECTORY,
+                                ).also {
+                                    SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                        sink.writeString(json)
+                                    }
                                 }
                             }
+                            shareLauncher.share(null, file, "application/json")
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            healthExportLogger.e(e) { "Failed to export health data" }
+                            exportError = "Health export failed. Try again."
+                        } finally {
+                            isExporting = false
                         }
-                        shareLauncher.share(null, file, "application/json")
                     }
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = !isExporting,
             ) {
                 Icon(Icons.Default.Share, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Export Raw Data")
+                Text(if (isExporting) "Exporting..." else "Export Raw Data")
+            }
+            exportError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
             }
             Spacer(Modifier.height(8.dp))
         }
     }
 }
+
+private const val HEALTH_EXPORT_CACHE_DIRECTORY = "exports"
 
 @Composable
 private fun TimeRangeSelector(sel: HealthTimeRange, onSel: (HealthTimeRange) -> Unit) {
