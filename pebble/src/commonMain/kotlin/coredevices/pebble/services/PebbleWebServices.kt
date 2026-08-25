@@ -273,6 +273,7 @@ class RealPebbleWebServices(
     private val bootConfig: BootConfigProvider,
     private val memfaultChunkQueue: MemfaultChunkQueue,
     private val analyticsHeartbeatQueue: AnalyticsHeartbeatQueue,
+    private val batteryHistoryRepository: BatteryHistoryRepository,
     private val appstoreSourceDao: AppstoreSourceDao,
     private val firestoreLocker: FirestoreLocker,
     private val heartsDao: HeartsDao,
@@ -380,6 +381,10 @@ class RealPebbleWebServices(
             fwVersion = watchInfo.runningFwVersion.stringVersion,
             payload = payload,
         )
+    }
+
+    override fun storeAnalyticsHeartbeat(payload: ByteArray, watchInfo: WatchInfo) {
+        batteryHistoryRepository.store(watchInfo.serial, payload)
     }
 
     override suspend fun addToLegacyLocker(uuid: String): Boolean =

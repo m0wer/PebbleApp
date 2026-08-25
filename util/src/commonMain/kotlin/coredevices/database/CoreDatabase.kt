@@ -24,8 +24,9 @@ internal const val CORE_DATABASE_FILENAME = "coreapp.db"
         MemfaultChunkEntity::class,
         AnalyticsHeartbeatEntity::class,
         SyncTaskEntity::class,
+        BatteryHistoryEntity::class,
     ],
-    version = 10,
+    version = 11,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -50,6 +51,7 @@ abstract class CoreDatabase : RoomDatabase() {
     abstract fun memfaultChunkDao(): MemfaultChunkDao
     abstract fun analyticsHeartbeatDao(): AnalyticsHeartbeatDao
     abstract fun syncTaskDao(): SyncTaskDao
+    abstract fun batteryHistoryDao(): BatteryHistoryDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT")
