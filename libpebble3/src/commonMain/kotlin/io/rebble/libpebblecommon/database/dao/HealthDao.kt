@@ -80,8 +80,11 @@ interface HealthDao {
             types: List<Int>
     ): List<OverlayDataEntity>
 
-    @Query("SELECT * FROM overlay_data ORDER BY startTime ASC")
+    @Query("SELECT * FROM overlay_data ORDER BY startTime ASC, type ASC")
     suspend fun getAllOverlayEntries(): List<OverlayDataEntity>
+
+    @Query("SELECT * FROM health_data ORDER BY timestamp ASC")
+    suspend fun getAllHealthData(): List<HealthDataEntity>
 
     @Query("SELECT * FROM overlay_data WHERE startTime = :startTime AND type = :type")
     suspend fun getOverlayAtStartTimeAndType(startTime: Long, type: Int): OverlayDataEntity?
