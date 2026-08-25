@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import coredevices.analytics.CoreAnalytics
 import coredevices.util.AudioEncoding
 import coredevices.util.CoreConfigFlow
+import coredevices.util.CloudTranscriptionProvider
 import coredevices.util.models.CactusSTTMode
 import coredevices.util.models.ModelDownloadManager
 import coredevices.util.models.inProgress
@@ -40,6 +41,7 @@ class HybridTranscriptionService(
     private val cactus: CactusTranscriptionService,
     private val wisprFlow: WisprFlowRESTTranscriptionService,
     private val kirinki: KirinkiTranscriptionService,
+    private val openAI: OpenAITranscriptionService,
     private val analytics: CoreAnalytics,
     private val platform: PlatformSpeechRecognizer,
     private val modelDownloads: ModelDownloadManager,
@@ -102,14 +104,18 @@ class HybridTranscriptionService(
     }
 
     override suspend fun isAvailable(): Boolean {
+        val remoteAvailable = when (sttConfig.cloudProvider) {
+            CloudTranscriptionProvider.Wispr -> wisprFlow.isAvailable() || kirinki.isAvailable()
+            CloudTranscriptionProvider.OpenAI -> openAI.isAvailable()
+        }
         return when (configuredMode) {
-            CactusSTTMode.RemoteOnly -> wisprFlow.isAvailable() || kirinki.isAvailable()
+            CactusSTTMode.RemoteOnly -> remoteAvailable
             CactusSTTMode.LocalOnly -> cactus.isLocalAvailable()
             CactusSTTMode.RemoteFirst, CactusSTTMode.LocalFirst ->
-                wisprFlow.isAvailable() || kirinki.isAvailable() || cactus.isModelReady
+                remoteAvailable || cactus.isModelReady
             CactusSTTMode.PlatformOnly ->
                 (platform.isAvailable() && platform.isAuthorized()) ||
-                    wisprFlow.isAvailable() || kirinki.isAvailable()
+                    remoteAvailable
             // Rebble modes are dispatched by STTRouter and never reach this service.
             CactusSTTMode.RebbleOnly,
             CactusSTTMode.RebbleFirst,
@@ -158,6 +164,7 @@ class HybridTranscriptionService(
     private suspend fun remoteTranscribe(
         audio: ByteArray,
         sampleRate: Int,
+        encoding: AudioEncoding,
         language: STTLanguage,
         conversationContext: STTConversationContext?,
         dictionaryContext: List<String>?,
@@ -165,6 +172,28 @@ class HybridTranscriptionService(
         willFallbackLocal: Boolean,
         initialTimeout: Duration = if (willFallbackLocal) 7.seconds else 10.seconds // We reduce the timeout if we have the potential to fall back locally since some consumers (e.g. pebble firmware) have hard timeouts.
     ): TranscriptionSessionStatus.Transcription {
+        if (sttConfig.cloudProvider == CloudTranscriptionProvider.OpenAI) {
+            return try {
+                withTimeout(initialTimeout) {
+                    openAI.transcribe(
+                        audioStreamFrames = flowOf(audio),
+                        sampleRate = sampleRate,
+                        encoding = encoding,
+                        language = language,
+                        conversationContext = conversationContext,
+                        dictionaryContext = dictionaryContext,
+                        contentContext = contentContext,
+                    ).filterIsInstance<TranscriptionSessionStatus.Transcription>().first()
+                }.also {
+                    analytics.logTranscriptionSuccess("openai")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                analytics.logTranscriptionFailure("openai", transcriptionFailureReason(e), e.message)
+                throw e
+            }
+        }
         suspend fun transcribeKirinki() = try {
             kirinki.transcribe(
                 audioStreamFrames = flowOf(audio),
@@ -236,6 +265,7 @@ class HybridTranscriptionService(
     private suspend fun route(
         audio: ByteArray,
         sampleRate: Int,
+        encoding: AudioEncoding,
         language: STTLanguage,
         conversationContext: STTConversationContext?,
         dictionaryContext: List<String>?,
@@ -250,6 +280,7 @@ class HybridTranscriptionService(
             remoteTranscribe(
                 audio = audio,
                 sampleRate = sampleRate,
+                encoding = encoding,
                 language = language,
                 conversationContext = conversationContext,
                 dictionaryContext = dictionaryContext,
@@ -406,6 +437,7 @@ class HybridTranscriptionService(
             val (text, modeUsed, modelUsed) = route(
                 audio = buffer.readByteArray(),
                 sampleRate = sampleRate,
+                encoding = encoding,
                 language = language,
                 conversationContext = conversationContext,
                 dictionaryContext = dictionaryContext,

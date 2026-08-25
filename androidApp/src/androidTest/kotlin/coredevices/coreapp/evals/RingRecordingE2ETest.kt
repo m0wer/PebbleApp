@@ -53,6 +53,7 @@ import coredevices.util.transcription.HybridTranscriptionService
 import coredevices.util.transcription.KirinkiTranscriptionService
 import coredevices.util.transcription.LocalTranscriptionService
 import coredevices.util.transcription.NoOpInferenceBoost
+import coredevices.util.transcription.OpenAITranscriptionService
 import coredevices.util.transcription.PlatformSpeechRecognizer
 import coredevices.util.models.ModelDownloadManager
 import coredevices.util.transcription.TranscriptionService
@@ -91,6 +92,7 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.parameter.parametersOf
 import org.koin.dsl.bind
 import org.koin.dsl.binds
 import org.koin.dsl.module
@@ -592,8 +594,11 @@ class RingRecordingE2ETest {
         }
         single { ModelDownloadManager(context) }
         single {
-            HybridTranscriptionService(get(), get(), get(), get(), get(), PlatformSpeechRecognizer(), get())
-        } binds arrayOf(TranscriptionService::class, LocalTranscriptionService::class)
+            OpenAITranscriptionService(get(), get(), get<HttpClientEngine> { parametersOf(120.seconds) })
+        }
+        single {
+            HybridTranscriptionService(get(), get(), get(), get(), get(), get(), PlatformSpeechRecognizer())
+        } bind TranscriptionService::class
 
         // MCP tools
         singleOf(::BuiltinServletRepository) bind ServletRepository::class

@@ -1,9 +1,7 @@
 package coredevices.ring.ui.screens.settings
 
 import coredevices.util.models.CactusSTTMode
-import coredevices.util.models.ModelDownloadStatus
-import coredevices.util.models.ModelInfo
-import coredevices.util.transcription.SpeechModelAvailability
+import coredevices.util.CloudTranscriptionProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,6 +16,8 @@ class SpeechSectionTest {
         assertTrue(CactusSTTMode.RemoteOnly.needsSignIn())
         assertTrue(CactusSTTMode.RemoteFirst.needsSignIn())
         assertTrue(CactusSTTMode.LocalFirst.needsSignIn())
+        assertFalse(CactusSTTMode.RemoteOnly.needsSignIn(CloudTranscriptionProvider.OpenAI))
+        assertFalse(CactusSTTMode.RemoteFirst.needsSignIn(CloudTranscriptionProvider.OpenAI))
     }
 
     @Test

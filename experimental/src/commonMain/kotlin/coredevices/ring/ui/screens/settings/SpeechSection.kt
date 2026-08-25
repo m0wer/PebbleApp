@@ -27,9 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalUriHandler
-import coredevices.util.models.ModelDownloadStatus
-import coredevices.util.models.inProgressSlug
 import coredevices.util.models.ModelInfo
 import coredevices.util.models.ModelManager
 import coredevices.util.models.RecommendedModel
@@ -45,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,15 +51,14 @@ import androidx.compose.material3.TextButton
 import coredevices.ui.M3Dialog
 import coredevices.ring.ui.theme.IndexTheme
 import coredevices.util.models.CactusSTTMode
-import coredevices.util.transcription.PlatformSpeechRecognizer
-import coredevices.util.transcription.SpeechModelAvailability
+import coredevices.util.CloudTranscriptionProvider
+import coredevices.util.OpenAITranscriptionConfig
+import coredevices.util.integrations.IntegrationTokenStorage
+import coredevices.util.transcription.OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY
 import coredevices.util.transcription.SpokenLanguageOptions
 import coredevices.util.transcription.platformModelNeedsDownload
 import coredevices.util.transcription.platformModelState
 import coredevices.util.transcription.spokenLanguageLabel
-
-/** Cloud transcription is provided by Wispr Flow; the row is informational. */
-private const val WISPR_URL = "https://wispr.ai/"
 
 /** The engines the Index pipeline honours. Rebble modes are routed by STTRouter for the watch
  *  and never reach the ring's transcription service, so they are not offered here. */
@@ -90,8 +88,10 @@ internal fun CactusSTTMode.speechEngineDetail(): String = when (this) {
     CactusSTTMode.RebbleOnly, CactusSTTMode.RebbleFirst, CactusSTTMode.RebbleFallback -> ""
 }
 
-/** Cloud transcription runs against the Core account, matching the watch settings screen's guard. */
-internal fun CactusSTTMode.needsSignIn(): Boolean =
+/** Wispr cloud transcription runs against the Core account. */
+internal fun CactusSTTMode.needsSignIn(
+    provider: CloudTranscriptionProvider = CloudTranscriptionProvider.Wispr,
+): Boolean = provider == CloudTranscriptionProvider.Wispr &&
     this != CactusSTTMode.LocalOnly && this != CactusSTTMode.PlatformOnly
 
 internal fun CactusSTTMode.needsLocalModel(): Boolean =
@@ -141,7 +141,8 @@ internal fun spokenLanguageRowSubtitle(spokenLanguage: String?, selectable: Bool
 fun SpeechSection(
     mode: CactusSTTMode,
     spokenLanguage: String?,
-    selectedModel: String?,
+    cloudProvider: CloudTranscriptionProvider,
+    openAI: OpenAITranscriptionConfig,
     onDeviceSupported: Boolean,
     platformSttAvailable: Boolean,
     hasOfflineModels: Boolean,
@@ -150,6 +151,8 @@ fun SpeechSection(
     onSelectModeWithModel: (CactusSTTMode, String) -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectLanguage: (String?) -> Unit,
+    onSelectCloudProvider: (CloudTranscriptionProvider) -> Unit,
+    onOpenAIConfigChange: (OpenAITranscriptionConfig) -> Unit,
     onRequireSignIn: () -> Unit,
     /** Opens the routed speech model download dialog for the configured engine. */
     onShowModelDownload: () -> Unit,
@@ -157,39 +160,16 @@ fun SpeechSection(
     var showEngineSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
+    var showProviderSheet by remember { mutableStateOf(false) }
     var pendingDownloadMode by remember { mutableStateOf<CactusSTTMode?>(null) }
     var pendingDownloadModel by remember { mutableStateOf<ModelInfo?>(null) }
     val modelManager = koinInject<ModelManager>()
-    val platformSpeechRecognizer = koinInject<PlatformSpeechRecognizer>()
+    val tokenStorage = koinInject<IntegrationTokenStorage>()
     val scope = rememberCoroutineScope()
-    val recommendedModel = remember { modelManager.getRecommendedSTTModel() }
-    val currentModel = selectedModel ?: recommendedModel.modelSlug
-    val downloadStatus by modelManager.modelDownloadStatus.collectAsState()
-    val selectableModels by produceState(emptyList<ModelInfo>()) {
-        value = modelManager.getSelectableSTTModels()
+    var apiKey by remember { mutableStateOf("") }
+    androidx.compose.runtime.LaunchedEffect(tokenStorage) {
+        apiKey = tokenStorage.getToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY).orEmpty()
     }
-    val currentModelInfo = selectableModels.firstOrNull { it.slug == currentModel }
-    val languageSelectable = spokenLanguageSelectable(mode, currentModelInfo)
-    var deletions by remember { mutableStateOf(0) }
-    val downloadedSlugs by produceState(emptyList<String>(), downloadStatus, deletions) {
-        value = withContext(Dispatchers.Default) { modelManager.getDownloadedSTTModelSlugs() }
-    }
-    // The parent's [hasOfflineModels] can't see a delete made from the model sheet.
-    val localModelReady = hasOfflineModels && (deletions == 0 || currentModel in downloadedSlugs)
-    val platformDownloadStatus by platformSpeechRecognizer.downloadStatus.collectAsState()
-    val platformModelAvailability by produceState(
-        SpeechModelAvailability.Unsupported,
-        spokenLanguage,
-        platformDownloadStatus,
-        platformSttAvailable,
-    ) {
-        value = if (platformSttAvailable) {
-            withContext(Dispatchers.Default) { platformSpeechRecognizer.modelAvailability(spokenLanguage) }
-        } else {
-            SpeechModelAvailability.Unsupported
-        }
-    }
-    val platformNeedsDownload = platformModelNeedsDownload(platformModelAvailability, platformDownloadStatus)
 
     SettingsRow(
         title = "Speech Engine",
@@ -202,34 +182,58 @@ fun SpeechSection(
         enabled = languageSelectable,
         onClick = { showLanguageSheet = true },
     )
-    if (mode.needsLocalModel() && onDeviceSupported) {
-        SettingsRow(
-            title = "Speech Model",
-            subtitle = currentModel,
-            onClick = { showModelSheet = true },
-        )
-    }
-    if (mode == CactusSTTMode.PlatformOnly) {
-        SettingsRow(
-            title = "Speech Model",
-            subtitle = platformModelSubtitle(spokenLanguage, platformModelAvailability, platformDownloadStatus),
-            enabled = platformNeedsDownload,
-            onClick = onShowModelDownload,
-        )
-    }
-    val uriHandler = LocalUriHandler.current
-    Text(
-        "Cloud speech recognition by Wispr Flow",
-        fontSize = 12.sp,
-        color = IndexTheme.colors.onSurfaceVariant,
-        modifier = Modifier
-            .clickable { uriHandler.openUrlSafely(WISPR_URL) }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+    SettingsRow(
+        title = "Cloud Provider",
+        subtitle = if (cloudProvider == CloudTranscriptionProvider.Wispr) "Wispr Flow" else "OpenAI-compatible",
+        onClick = { showProviderSheet = true },
     )
+    if (cloudProvider == CloudTranscriptionProvider.OpenAI) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            OutlinedTextField(
+                value = openAI.endpoint,
+                onValueChange = { onOpenAIConfigChange(openAI.copy(endpoint = it)) },
+                label = { Text("OpenAI Endpoint") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = openAI.model,
+                onValueChange = { onOpenAIConfigChange(openAI.copy(model = it)) },
+                label = { Text("OpenAI Model") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = openAI.prompt,
+                onValueChange = { onOpenAIConfigChange(openAI.copy(prompt = it)) },
+                label = { Text("OpenAI Prompt") },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("OpenAI API Key") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .onFocusChanged { focus ->
+                        if (!focus.isFocused) {
+                            scope.launch {
+                                if (apiKey.isBlank()) tokenStorage.deleteToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY)
+                                else tokenStorage.saveToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY, apiKey)
+                            }
+                        }
+                    },
+            )
+        }
+    }
 
     if (showEngineSheet) {
         SpeechEngineSheet(
             current = mode,
+            cloudProvider = cloudProvider,
             onDeviceSupported = onDeviceSupported,
             platformSttAvailable = platformSttAvailable,
             hasOfflineModels = localModelReady,
@@ -238,11 +242,7 @@ fun SpeechSection(
             onSelect = { selected, needsDownload ->
                 showEngineSheet = false
                 when {
-                    selected.needsSignIn() && !signedIn -> onRequireSignIn()
-                    selected == CactusSTTMode.PlatformOnly -> {
-                        onSelectMode(selected)
-                        if (needsDownload) onShowModelDownload()
-                    }
+                    selected.needsSignIn(cloudProvider) && !signedIn -> onRequireSignIn()
                     needsDownload -> pendingDownloadMode = selected
                     else -> onSelectMode(selected)
                 }
@@ -324,12 +324,23 @@ fun SpeechSection(
             onDismiss = { showLanguageSheet = false },
         )
     }
+    if (showProviderSheet) {
+        CloudProviderSheet(
+            current = cloudProvider,
+            onSelect = {
+                onSelectCloudProvider(it)
+                showProviderSheet = false
+            },
+            onDismiss = { showProviderSheet = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SpeechEngineSheet(
     current: CactusSTTMode,
+    cloudProvider: CloudTranscriptionProvider,
     onDeviceSupported: Boolean,
     platformSttAvailable: Boolean,
     hasOfflineModels: Boolean,
@@ -367,7 +378,7 @@ private fun SpeechEngineSheet(
                 )
                 val reason = blocked
                     ?: "Sign in to use cloud speech recognition"
-                        .takeIf { !signedIn && mode.needsSignIn() }
+                        .takeIf { !signedIn && mode.needsSignIn(cloudProvider) }
                 val selectable = blocked == null || selected
                 Row(
                     modifier = Modifier
@@ -415,85 +426,32 @@ private fun SpeechEngineSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeechModelSheet(
-    current: String,
-    models: List<ModelInfo>,
-    downloadedSlugs: List<String>,
-    downloadStatus: ModelDownloadStatus,
-    onSelect: (ModelInfo) -> Unit,
-    onDelete: (ModelInfo) -> Unit,
+private fun CloudProviderSheet(
+    current: CloudTranscriptionProvider,
+    onSelect: (CloudTranscriptionProvider) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = IndexTheme.colors
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.sheetSurface) {
         Column(modifier = Modifier.padding(bottom = 28.dp)) {
-            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
-                Text(
-                    "Speech Model",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.onSurface,
-                )
-                Text(
-                    "Select which model transcribes on this phone",
-                    fontSize = 12.sp,
-                    color = colors.onSurfaceVariant,
-                )
-            }
-            models.forEach { info ->
-                val selected = info.slug == current
-                val downloaded = info.slug in downloadedSlugs
-                val downloading =
-                    downloadStatus.inProgressSlug == info.slug
+            CloudTranscriptionProvider.entries.forEach { provider ->
+                val selected = provider == current
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp)
                         .selectedSheetRowBackground(selected)
-                        .clickable(enabled = !downloading) { onSelect(info) }
+                        .clickable { onSelect(provider) }
                         .padding(horizontal = 16.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(info.slug, fontSize = 15.sp, color = colors.onSurface)
-                        Text(
-                            if (downloading) "Downloading…" else speechModelDetail(info, downloaded),
-                            fontSize = 12.sp,
-                            color = colors.onSurfaceVariant,
-                        )
-                    }
-                    when {
-                        downloading -> CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = colors.primary,
-                        )
-                        !downloaded -> Icon(
-                            Icons.Default.Download,
-                            contentDescription = null,
-                            tint = colors.outline,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        else -> {
-                            if (selected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = colors.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                            IconButton(onClick = { onDelete(info) }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete ${info.slug}",
-                                    tint = colors.error,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        if (provider == CloudTranscriptionProvider.Wispr) "Wispr Flow" else "OpenAI-compatible",
+                        fontSize = 15.sp,
+                        color = colors.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selected) Icon(Icons.Default.Check, null, tint = colors.primary, modifier = Modifier.size(18.dp))
                 }
             }
         }
