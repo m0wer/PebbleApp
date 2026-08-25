@@ -24,6 +24,8 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+      - name: Provide fallback version tag
+        run: git describe --tags --abbrev=0 HEAD >/dev/null 2>&1 || git tag 0.0.0.1
       - name: Cache build deps
         uses: actions/cache@v4
         with:
