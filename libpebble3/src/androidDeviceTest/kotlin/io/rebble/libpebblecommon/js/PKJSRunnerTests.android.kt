@@ -59,6 +59,11 @@ class PKJSRunnerTestsAndroid: PKJSRunnerTests(::createJsRunner) {
     }
 
     @Test
+    override fun testVoiceRecordingEvents() {
+        super.testVoiceRecordingEvents()
+    }
+
+    @Test
     override fun testLocalStoragePersistence() {
         super.testLocalStoragePersistence()
     }
