@@ -30,6 +30,7 @@ import io.rebble.libpebblecommon.database.dao.VibePatternDao
 import io.rebble.libpebblecommon.database.dao.WatchPreference
 import io.rebble.libpebblecommon.database.entity.CalendarEntity
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
+import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.MuteState
 import io.rebble.libpebblecommon.database.entity.NotificationEntity
 import io.rebble.libpebblecommon.database.entity.NotificationRuleEntity
@@ -148,6 +149,8 @@ data class LatestHeartRate(
 
 interface HealthDataApi {
     suspend fun getLatestTimestamp(): Long?
+    suspend fun getAllHealthData(): List<HealthDataEntity>
+    suspend fun getAllOverlayEntries(): List<OverlayDataEntity>
     suspend fun getHealthDataAfter(afterTimestamp: Long): List<HealthDataEntity>
     suspend fun getOverlayEntriesAfter(afterTimestamp: Long, types: List<Int>): List<OverlayDataEntity>
 
@@ -231,6 +234,7 @@ interface WatchPrefs {
 interface Watches {
     val watches: PebbleDevices
     val connectionEvents: Flow<PebbleConnectionEvent>
+    suspend fun getKnownWatches(): List<KnownWatchItem>
     fun watchesDebugState(): String
 }
 
