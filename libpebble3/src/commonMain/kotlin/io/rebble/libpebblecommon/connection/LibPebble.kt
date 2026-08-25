@@ -267,6 +267,7 @@ interface WebServices {
     suspend fun checkForFirmwareUpdate(watch: WatchInfo, force: Boolean): FirmwareUpdateCheckResult
     fun uploadMemfaultChunk(chunk: ByteArray, watchInfo: WatchInfo)
     fun uploadAnalyticsHeartbeat(payload: ByteArray, watchInfo: WatchInfo)
+    fun storeAnalyticsHeartbeat(payload: ByteArray, watchInfo: WatchInfo) = Unit
 }
 
 interface TokenProvider {
