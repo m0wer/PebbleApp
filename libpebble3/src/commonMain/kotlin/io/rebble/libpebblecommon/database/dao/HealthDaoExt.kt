@@ -6,6 +6,13 @@ import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 
 private val logger = Logger.withTag("HealthDaoExt")
 
+internal fun HealthDataEntity.hasMinuteContext(): Boolean =
+    pluggedIn != 0 || sleepIntentHint != 0 || timezoneOffset15Minutes != 0
+
+internal fun shouldReplaceHealthData(existing: HealthDataEntity, incoming: HealthDataEntity): Boolean =
+    incoming.steps > existing.steps ||
+        (incoming.steps == existing.steps && incoming.hasMinuteContext() && !existing.hasMinuteContext())
+
 /**
  * Inserts health data with priority based on step count. If data already exists for a timestamp,
  * only replaces it if the new data has more steps.
@@ -20,9 +27,9 @@ suspend fun HealthDao.insertHealthDataWithPriority(data: List<HealthDataEntity>)
         if (existing == null) {
             insertHealthData(listOf(newData))
             inserted++
-        } else if (newData.steps > existing.steps) {
+        } else if (shouldReplaceHealthData(existing, newData)) {
             logger.d {
-                "Replacing data at timestamp ${newData.timestamp}: ${existing.steps} steps -> ${newData.steps} steps (gained ${newData.steps - existing.steps} steps)"
+                "Replacing data at timestamp ${newData.timestamp}: ${existing.steps} steps -> ${newData.steps} steps"
             }
             insertHealthData(listOf(newData))
             replaced++

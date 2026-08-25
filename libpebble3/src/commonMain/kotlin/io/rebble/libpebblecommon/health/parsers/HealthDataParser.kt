@@ -18,6 +18,7 @@ private val logger = Logger.withTag("HealthDataParser")
  * - Firmware 4.0 (version 7) - adds heart rate data
  * - Firmware 4.1 (version 12) - adds heart rate weight
  * - Firmware 4.3 (version 13) - adds heart rate zone
+ * - Firmware 4.3+ (version 14) - adds Quiet Time sleep intent hint
  *
  * @param payload Raw byte array from the watch
  * @param itemSize Size of each data item in bytes
@@ -42,12 +43,19 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
 
     for (i in 0 until packetCount) {
         val itemStart = buffer.readPosition
+        val itemEnd = itemStart + itemSize.toInt()
         buffer.setEndian(Endian.Little)
+
+        if (!hasBytesInItem(buffer, itemEnd, STEP_HEADER_SIZE)) {
+            logger.w { "Steps item $i is too short for its header" }
+            skipToItemEnd(buffer, itemEnd)
+            continue
+        }
 
         val version = buffer.getUShort()
         val timestamp = buffer.getUInt()
-        buffer.getByte() // unused
-        val sampleSize = buffer.getUByte().toInt()
+        val timezoneOffset15Minutes = buffer.getByte().toInt()
+        buffer.getUByte() // recordLength
         val recordNum = buffer.getUByte()
 
         val isNewerVersion = version > VERSION_FW_4_3 && sampleSize >= VERSION_FW_4_3_SAMPLE_SIZE
@@ -63,11 +71,11 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
         }
 
         var currentTimestamp = timestamp
+        val recordSize = stepRecordSize(version)
 
         for (j in 0 until recordNum.toInt()) {
-            val sampleStart = buffer.readPosition
-            if (buffer.remaining < maxOf(sampleSize, 5)) {
-                logger.w { "Buffer exhausted during steps parsing at record $j/$recordNum in packet $i" }
+            if (!hasBytesInItem(buffer, itemEnd, recordSize)) {
+                logger.w { "Steps item $i is truncated at record $j/$recordNum" }
                 break
             }
             val steps = buffer.getUByte().toInt()
@@ -87,6 +95,7 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
             var heartRate = 0
             var heartRateWeight = 0
             var heartRateZone = 0
+            var sleepIntentHint = 0
 
             if (version >= VERSION_FW_3_11) {
                 restingGramCalories = buffer.getUShort().toInt()
@@ -106,9 +115,9 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                 heartRateZone = buffer.getUByte().toInt()
             }
 
-            // Newer versions append fields to each sample
-            val unread = sampleSize - (buffer.readPosition - sampleStart)
-            if (unread > 0) buffer.getBytes(unread)
+            if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) {
+                sleepIntentHint = buffer.getUByte().toInt()
+            }
 
             records.add(
                 HealthDataEntity(
@@ -123,30 +132,44 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                     distanceCm = distanceCm,
                     heartRate = heartRate,
                     heartRateZone = heartRateZone,
-                    heartRateWeight = heartRateWeight
+                    heartRateWeight = heartRateWeight,
+                    pluggedIn = flags and 1,
+                    sleepIntentHint = sleepIntentHint,
+                    timezoneOffset15Minutes = timezoneOffset15Minutes,
                 )
             )
 
             currentTimestamp += 60u
         }
 
-        val consumed = buffer.readPosition - itemStart
-        val expected = itemSize.toInt()
-        if (consumed < expected) {
-            val skipAmount = expected - consumed
-            if (buffer.remaining >= skipAmount) {
-                buffer.getBytes(skipAmount)
-            } else {
-                logger.w { "Buffer exhausted skipping steps padding: consumed=$consumed, expected=$expected, remaining=${buffer.remaining}" }
-                break
-            }
-        } else if (consumed > expected) {
-            logger.w { "Health steps item over-read: consumed=$consumed, expected=$expected" }
-        }
+        skipToItemEnd(buffer, itemEnd)
     }
 
     return records
 }
+
+private fun hasBytesInItem(buffer: DataBuffer, itemEnd: Int, byteCount: Int): Boolean =
+    buffer.remaining >= byteCount && buffer.readPosition + byteCount <= itemEnd
+
+private fun skipToItemEnd(buffer: DataBuffer, itemEnd: Int) {
+    val byteCount = itemEnd - buffer.readPosition
+    when {
+        byteCount > 0 && buffer.remaining >= byteCount -> buffer.getBytes(byteCount)
+        byteCount > 0 -> logger.w {
+            "Buffer exhausted skipping steps item: required=$byteCount, remaining=${buffer.remaining}"
+        }
+        byteCount < 0 -> logger.w { "Health steps item over-read by ${-byteCount} bytes" }
+    }
+}
+
+private fun stepRecordSize(version: UShort): Int =
+    5 +
+        (if (version >= VERSION_FW_3_10_AND_BELOW) 1 else 0) +
+        (if (version >= VERSION_FW_3_11) 6 else 0) +
+        (if (version >= VERSION_FW_4_0) 1 else 0) +
+        (if (version >= VERSION_FW_4_1) 2 else 0) +
+        (if (version >= VERSION_FW_4_3) 1 else 0) +
+        (if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) 1 else 0)
 
 /**
  * Parses overlay data (sleep, activities) from the watch's health payload.
@@ -248,16 +271,18 @@ fun parseOverlayData(payload: ByteArray, itemSize: UShort): List<OverlayDataEnti
 }
 
 // Firmware version constants for health data parsing
+private const val STEP_HEADER_SIZE = 9
 private val VERSION_FW_3_10_AND_BELOW: UShort = 5u
 private val VERSION_FW_3_11: UShort = 6u
 private val VERSION_FW_4_0: UShort = 7u
 private val VERSION_FW_4_1: UShort = 12u
 private val VERSION_FW_4_3: UShort = 13u
-private const val VERSION_FW_4_3_SAMPLE_SIZE = 16
+private val VERSION_FW_4_3_WITH_SLEEP_INTENT: UShort = 14u
 private val SUPPORTED_STEP_VERSIONS = setOf(
     VERSION_FW_3_10_AND_BELOW,
     VERSION_FW_3_11,
     VERSION_FW_4_0,
     VERSION_FW_4_1,
-    VERSION_FW_4_3
+    VERSION_FW_4_3,
+    VERSION_FW_4_3_WITH_SLEEP_INTENT,
 )
