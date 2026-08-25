@@ -203,6 +203,7 @@ enum class BoolWatchPref(
     Backlight("lightEnabled", "Backlight", true),
     AmbientLightSensor("lightAmbientSensorEnabled", "Ambient Light Sensor", true, description = "Only enable backlight when in a dark environment (using light sensor)"),
     BacklightMotion("lightMotion", "Backlight Motion", true, description = "Turn on backlight by flicking wrist"),
+    DoubleFlickDismissNotification("doubleFlickDismissNotification", "Double Flick to Dismiss", false, description = "Dismiss the current notification by flicking twice"),
     TimelineQuickViewEnabled("timelineQuickViewEnabled", "Timeline Quick View", true, description = "Show upcoming events below watchface"),
     QuietTimeManuallyEnabled("dndManuallyEnabled", "Quiet Time - Manual", false, description = "Notifications are muted (and will stay on-screen without a timeout) when in quiet time"),
     CalendarAwareQuietTime("dndSmartEnabled", "Quiet Time - Calendar Aware", false, description = "Automatically enable Quiet Time during calendar events"),

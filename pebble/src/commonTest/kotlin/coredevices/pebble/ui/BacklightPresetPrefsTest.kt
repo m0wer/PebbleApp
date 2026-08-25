@@ -49,4 +49,11 @@ class BacklightPresetPrefsTest {
             filtered.map { it.pref },
         )
     }
+
+    @Test
+    fun doubleFlickDismissIsANotificationPreference() {
+        assertEquals("doubleFlickDismissNotification", BoolWatchPref.DoubleFlickDismissNotification.id)
+        assertEquals(false, BoolWatchPref.DoubleFlickDismissNotification.defaultValue)
+        assertEquals(Section.Notifications, BoolWatchPref.DoubleFlickDismissNotification.section())
+    }
 }
