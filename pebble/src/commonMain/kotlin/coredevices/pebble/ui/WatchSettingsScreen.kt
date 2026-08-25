@@ -5,7 +5,6 @@ import CommonRoutes
 import CoreAppVersion
 import NextBugReportContext
 import PlatformUiContext
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -95,6 +94,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -134,6 +134,7 @@ import coredevices.ui.M3Dialog
 import coredevices.ui.SignInDialog
 import coredevices.util.CoreConfig
 import coredevices.util.CoreConfigHolder
+import coredevices.util.CloudTranscriptionProvider
 import coredevices.util.Permission
 import coredevices.util.PermissionRequester
 import coredevices.util.STTConfig
@@ -146,7 +147,9 @@ import coredevices.util.models.ModelManager
 import coredevices.util.models.RecommendedModel
 import coredevices.util.rememberUiContext
 import coredevices.util.transcription.PlatformSpeechRecognizer
+import coredevices.util.transcription.OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY
 import coredevices.util.transcription.SpokenLanguageOptions
+import coredevices.util.integrations.IntegrationTokenStorage
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.crashlytics.crashlytics
@@ -164,16 +167,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import coreapp.pebble.generated.resources.Res
-import coreapp.pebble.generated.resources.wispr_flow_logo_black
-import coreapp.pebble.generated.resources.wispr_flow_logo_white
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import theme.CoreAppTheme
 import theme.ThemeProvider
-import theme.currentColorScheme
 import kotlin.math.roundToLong
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -293,6 +291,14 @@ fun settingsBadgeTotal(): Int {
 
 private val logger = Logger.withTag("WatchSettingsScreen")
 
+internal fun CactusSTTMode.requiresCoreAccount(provider: CloudTranscriptionProvider): Boolean =
+    provider == CloudTranscriptionProvider.Wispr &&
+        this != CactusSTTMode.LocalOnly &&
+        this != CactusSTTMode.PlatformOnly
+
+internal fun STTConfig.withDownloadedModel(mode: CactusSTTMode, modelName: String): STTConfig =
+    copy(mode = mode, modelName = modelName)
+
 sealed interface RequestedLocalSTTMode {
     val mode: CactusSTTMode
 
@@ -325,6 +331,7 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val libPebbleConfig by libPebble.config.collectAsState()
     val coreConfigHolder: CoreConfigHolder = koinInject()
     val coreConfig by coreConfigHolder.config.collectAsState()
+    val integrationTokenStorage: IntegrationTokenStorage = koinInject()
     val themeProvider: ThemeProvider = koinInject()
     val settings: Settings = koinInject()
     val currentTheme by themeProvider.theme.collectAsState()
@@ -336,6 +343,10 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     }.distinctUntilChanged()
         .collectAsState(Firebase.auth.currentUser?.emailOrNull)
     val scope = rememberCoroutineScope()
+    var openAIApiKey by remember { mutableStateOf("") }
+    LaunchedEffect(integrationTokenStorage) {
+        openAIApiKey = integrationTokenStorage.getToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY).orEmpty()
+    }
     val appContext = koinInject<AppContext>()
     val appVersion = koinInject<CoreAppVersion>()
     val platform = koinInject<Platform>()
@@ -398,9 +409,9 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     } else {
                         coreConfigHolder.update(
                             coreConfig.copy(
-                                sttConfig = STTConfig(
-                                    mode = pendingSTTMode,
-                                    modelName = recommendedModelFinal.slug
+                                sttConfig = coreConfig.sttConfig.withDownloadedModel(
+                                    pendingSTTMode,
+                                    recommendedModelFinal.slug,
                                 )
                             )
                         )
@@ -1498,7 +1509,7 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                             snackbarDisplay.showSnackbar("This device doesn't support system speech recognition")
                         } else if (it != CactusSTTMode.RemoteOnly && !isPlatform && !cactusSupported) {
                             snackbarDisplay.showSnackbar("This device doesn't support local speech recognition")
-                        } else if (it != CactusSTTMode.LocalOnly && !isPlatform && !isRebble && coreUser == null) {
+                        } else if (!isRebble && it.requiresCoreAccount(coreConfig.sttConfig.cloudProvider) && coreUser == null) {
                             snackbarDisplay.showSnackbar("You need to be signed in to use cloud speech recognition")
                             showSignInDialog = true
                         } else if (needsLocal && !hasOfflineModels) {
@@ -1585,25 +1596,139 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     section = Section.Speech,
                     action = { showSpokenLanguageDialog = true },
                 ),
+                basicSettingsDropdownItem(
+                    title = "Cloud Provider",
+                    description = "OpenAI-compatible requires a configured HTTPS endpoint and model",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Speech,
+                    items = CloudTranscriptionProvider.entries,
+                    selectedItem = coreConfig.sttConfig.cloudProvider,
+                    onItemSelected = { provider ->
+                        coreConfigHolder.update(
+                            coreConfig.copy(sttConfig = coreConfig.sttConfig.copy(cloudProvider = provider))
+                        )
+                    },
+                    itemText = { provider ->
+                        if (provider == CloudTranscriptionProvider.Wispr) "Wispr Flow" else "OpenAI-compatible"
+                    },
+                ),
                 SettingsItem(
-                    title = "Cloud Recognition Provider",
+                    title = "OpenAI Endpoint",
                     isDebugSetting = false,
                     topLevelType = TopLevelType.Phone,
                     section = Section.Speech,
-                    keywords = "",
+                    keywords = "openai whisper endpoint transcription",
+                    show = { coreConfig.sttConfig.cloudProvider == CloudTranscriptionProvider.OpenAI },
                     item = {
-                        val logo = if (currentColorScheme().isDark) {
-                            Res.drawable.wispr_flow_logo_white
-                        } else {
-                            Res.drawable.wispr_flow_logo_black
-                        }
                         ListItem(
-                            headlineContent = { Text("Cloud Recognition Provider") },
-                            trailingContent = {
-                                Image(
-                                    painter = painterResource(logo),
-                                    contentDescription = "Wispr Flow",
-                                    modifier = Modifier.height(20.dp),
+                            headlineContent = { Text("OpenAI Endpoint") },
+                            supportingContent = {
+                                OutlinedTextField(
+                                    value = coreConfig.sttConfig.openAI.endpoint,
+                                    onValueChange = { endpoint ->
+                                        coreConfigHolder.update(coreConfig.copy(
+                                            sttConfig = coreConfig.sttConfig.copy(
+                                                openAI = coreConfig.sttConfig.openAI.copy(endpoint = endpoint)
+                                            )
+                                        ))
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                            shadowElevation = ELEVATION,
+                        )
+                    }
+                ),
+                SettingsItem(
+                    title = "OpenAI Model",
+                    isDebugSetting = false,
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Speech,
+                    keywords = "openai whisper model transcription",
+                    show = { coreConfig.sttConfig.cloudProvider == CloudTranscriptionProvider.OpenAI },
+                    item = {
+                        ListItem(
+                            headlineContent = { Text("OpenAI Model") },
+                            supportingContent = {
+                                OutlinedTextField(
+                                    value = coreConfig.sttConfig.openAI.model,
+                                    onValueChange = { model ->
+                                        coreConfigHolder.update(coreConfig.copy(
+                                            sttConfig = coreConfig.sttConfig.copy(
+                                                openAI = coreConfig.sttConfig.openAI.copy(model = model)
+                                            )
+                                        ))
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                            shadowElevation = ELEVATION,
+                        )
+                    }
+                ),
+                SettingsItem(
+                    title = "OpenAI Prompt",
+                    isDebugSetting = false,
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Speech,
+                    keywords = "openai whisper prompt transcription context",
+                    show = { coreConfig.sttConfig.cloudProvider == CloudTranscriptionProvider.OpenAI },
+                    item = {
+                        ListItem(
+                            headlineContent = { Text("OpenAI Prompt") },
+                            supportingContent = {
+                                OutlinedTextField(
+                                    value = coreConfig.sttConfig.openAI.prompt,
+                                    onValueChange = { prompt ->
+                                        coreConfigHolder.update(coreConfig.copy(
+                                            sttConfig = coreConfig.sttConfig.copy(
+                                                openAI = coreConfig.sttConfig.openAI.copy(prompt = prompt)
+                                            )
+                                        ))
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                            shadowElevation = ELEVATION,
+                        )
+                    }
+                ),
+                SettingsItem(
+                    title = "OpenAI API Key",
+                    isDebugSetting = false,
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Speech,
+                    keywords = "openai api key whisper transcription",
+                    show = { coreConfig.sttConfig.cloudProvider == CloudTranscriptionProvider.OpenAI },
+                    item = {
+                        ListItem(
+                            headlineContent = { Text("OpenAI API Key") },
+                            supportingContent = {
+                                OutlinedTextField(
+                                    value = openAIApiKey,
+                                    onValueChange = { apiKey -> openAIApiKey = apiKey },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onFocusChanged { focus ->
+                                            if (!focus.isFocused) {
+                                                scope.launch {
+                                                    if (openAIApiKey.isBlank()) {
+                                                        integrationTokenStorage.deleteToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY)
+                                                    } else {
+                                                        integrationTokenStorage.saveToken(
+                                                            OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY,
+                                                            openAIApiKey,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        },
                                 )
                             },
                             shadowElevation = ELEVATION,

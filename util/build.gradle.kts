@@ -127,6 +127,7 @@ kotlin {
                 implementation(project(":cactus"))
                 implementation(project(":libpebble3"))
                 implementation(project(":libindex"))
+                implementation(project(":resampler"))
                 api(project(":index-ai"))
                 implementation(libs.kmpio)
                 api(libs.room.runtime)
@@ -143,6 +144,7 @@ kotlin {
         commonTest {
             dependencies {
                 implementation(libs.kotlin.test)
+                implementation(libs.ktor.client.mock)
             }
         }
 
