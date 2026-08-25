@@ -108,4 +108,19 @@ data class STTConfig(
     val modelName: String? = null,
     /** ISO 639-1 language code. Null means auto-detect. */
     val spokenLanguage: String? = null,
+    val cloudProvider: CloudTranscriptionProvider = CloudTranscriptionProvider.Wispr,
+    val openAI: OpenAITranscriptionConfig = OpenAITranscriptionConfig(),
+)
+
+@Serializable
+enum class CloudTranscriptionProvider {
+    Wispr,
+    OpenAI,
+}
+
+@Serializable
+data class OpenAITranscriptionConfig(
+    val endpoint: String = "",
+    val model: String = "",
+    val prompt: String = "",
 )

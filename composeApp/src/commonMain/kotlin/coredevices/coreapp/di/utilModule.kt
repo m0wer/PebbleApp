@@ -38,7 +38,7 @@ import coredevices.util.transcription.CactusModelPathProvider
 import coredevices.util.transcription.CactusTranscriptionService
 import coredevices.util.transcription.HybridTranscriptionService
 import coredevices.util.transcription.KirinkiTranscriptionService
-import coredevices.util.transcription.LocalTranscriptionService
+import coredevices.util.transcription.OpenAITranscriptionService
 import coredevices.util.transcription.PlatformSpeechRecognizer
 import coredevices.util.transcription.TranscriptionService
 import coredevices.util.transcription.WisprFlowRESTTranscriptionService
@@ -49,13 +49,16 @@ import dev.gitlive.firebase.firestore.firestore
 import dev.gitlive.firebase.firestore.firestoreSettings
 import dev.gitlive.firebase.firestore.persistentCacheSettings
 import io.rebble.libpebblecommon.plugin.PhoneNetworkMonitor
+import io.ktor.client.engine.HttpClientEngine
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.bind
 import org.koin.dsl.binds
 import org.koin.dsl.module
+import org.koin.core.parameter.parametersOf
 import theme.RealThemeProvider
 import theme.ThemeProvider
+import kotlin.time.Duration.Companion.seconds
 
 val utilModule = module {
     single<FirebaseFirestore> {
@@ -120,10 +123,13 @@ val utilModule = module {
     }
     singleOf(::PlatformSpeechRecognizer)
     single {
-        HybridTranscriptionService(get(), get(), get(), get(), get(), get(), get(), getOrNull<PhoneNetworkMonitor>()?.connection)
+        HybridTranscriptionService(get(), get(), get(), get(), get(), get(), get(), get(), getOrNull<PhoneNetworkMonitor>()?.connection)
     } binds arrayOf(TranscriptionService::class, LocalTranscriptionService::class)
     singleOf(::WisprFlowRESTTranscriptionService)
     singleOf(::KirinkiTranscriptionService)
+    single {
+        OpenAITranscriptionService(get(), get(), get<HttpClientEngine> { parametersOf(120.seconds) })
+    }
     single<UsersDao> { UsersDaoImpl({ get() }, get(), get(), get(), get()) }
     singleOf(::HealthSyncTracker)
     singleOf(::PlatformHealthSync)

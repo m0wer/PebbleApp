@@ -369,7 +369,8 @@ fun IndexSettings(coreNav: CoreNav) {
                 SpeechSection(
                     mode = coreConfig.sttConfig.mode,
                     spokenLanguage = coreConfig.sttConfig.spokenLanguage,
-                    selectedModel = selectedSttModel,
+                    cloudProvider = coreConfig.sttConfig.cloudProvider,
+                    openAI = coreConfig.sttConfig.openAI,
                     onDeviceSupported = onDeviceSpeechSupported,
                     platformSttAvailable = platformSttAvailable,
                     hasOfflineModels = hasOfflineSpeechModels,
@@ -411,6 +412,16 @@ fun IndexSettings(coreNav: CoreNav) {
                             coreConfig.copy(
                                 sttConfig = coreConfig.sttConfig.copy(spokenLanguage = language)
                             )
+                        )
+                    },
+                    onSelectCloudProvider = { provider ->
+                        coreConfigHolder.update(
+                            coreConfig.copy(sttConfig = coreConfig.sttConfig.copy(cloudProvider = provider))
+                        )
+                    },
+                    onOpenAIConfigChange = { openAI ->
+                        coreConfigHolder.update(
+                            coreConfig.copy(sttConfig = coreConfig.sttConfig.copy(openAI = openAI))
                         )
                     },
                     onRequireSignIn = { showSignInDialog = true },
