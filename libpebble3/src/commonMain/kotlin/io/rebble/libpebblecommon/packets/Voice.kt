@@ -104,6 +104,8 @@ class SessionSetupCommand : IncomingVoicePacket() {
 enum class SessionType(val value: UByte) {
     Dictation(0x01u),
     Command(0x02u),
+    NLP(0x03u),
+    Recording(0x04u),
 }
 
 enum class Result(val value: UByte) {

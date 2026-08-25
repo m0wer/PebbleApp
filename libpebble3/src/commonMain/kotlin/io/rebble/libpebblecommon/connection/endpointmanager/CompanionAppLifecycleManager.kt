@@ -64,6 +64,9 @@ class CompanionAppLifecycleManager(
     override val currentCompanionAppSessions: StateFlow<List<CompanionApp>>
         get() = runningApps.asStateFlow()
 
+    fun activePKJSApp(uuid: kotlin.uuid.Uuid): PKJSApp? =
+        runningApps.value.filterIsInstance<PKJSApp>().firstOrNull { it.uuid == uuid }
+
     private suspend fun handleAppStop() {
         activeAppScope.cancel()
         runningApps.value.forEach { app ->

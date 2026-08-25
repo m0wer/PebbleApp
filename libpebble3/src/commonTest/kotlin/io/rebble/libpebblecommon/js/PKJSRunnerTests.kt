@@ -158,6 +158,40 @@ abstract class PKJSRunnerTests(
         }
     }
 
+    open fun testVoiceRecordingEvents() {
+        val runner = makeRunner(
+            """
+                window.recordingEvents = [];
+                Pebble.addEventListener('voicerecordingstart', function(event) {
+                    window.recordingEvents.push('start:' + event.sessionId + ':' + event.codec);
+                });
+                Pebble.addEventListener('voicerecordingdata', function(event) {
+                    window.recordingEvents.push('data:' + event.sessionId + ':' + event.data);
+                });
+                Pebble.addEventListener('voicerecordingend', function(event) {
+                    window.recordingEvents.push('end:' + event.sessionId + ':' + event.success);
+                });
+            """.trimIndent(),
+            Uuid.random(),
+        )
+
+        runBlocking {
+            runner.start()
+            withTimeout(1.seconds) {
+                runner.readyState.first { it }
+            }
+            runner.eval("globalThis.signalVoiceRecordingStart({sessionId: 7, codec: 'speex', sampleRate: 8000, bitRate: 11000, bitstreamVersion: 1, frameSize: 160})")
+            runner.eval("globalThis.signalVoiceRecordingData({sessionId: 7, data: 'AQI='})")
+            runner.eval("globalThis.signalVoiceRecordingEnd({sessionId: 7, success: true})")
+
+            val encodedEvents = runner.evalWithResult("JSON.stringify(window.recordingEvents)") as String
+            val events = Json.decodeFromString<List<String>>(
+                Json.decodeFromString<JsonElement>(encodedEvents).jsonPrimitive.content,
+            )
+            assertEquals(listOf("start:7:speex", "data:7:AQI=", "end:7:true"), events)
+        }
+    }
+
     open fun testLocalStoragePersistence() {
         val js = """
             Pebble.addEventListener('ready', function() {

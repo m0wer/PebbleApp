@@ -10,6 +10,7 @@ import io.rebble.libpebblecommon.metadata.pbw.appinfo.PbwAppInfo
 import io.rebble.libpebblecommon.services.appmessage.AppMessageData
 import io.rebble.libpebblecommon.services.appmessage.AppMessageDictionary
 import io.rebble.libpebblecommon.services.appmessage.AppMessageResult
+import io.rebble.libpebblecommon.voice.VoiceEncoderInfo
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import org.koin.core.component.get
 import org.koin.core.parameter.parameterArrayOf
 import kotlin.time.Duration.Companion.seconds
@@ -89,6 +92,55 @@ class PKJSApp(
 
     fun debugForceGC() {
         jsRunner?.debugForceGC() ?: error("JsRunner not initialized")
+    }
+
+    suspend fun signalVoiceRecordingStart(
+        sessionId: Int,
+        encoderInfo: VoiceEncoderInfo.Speex,
+    ): Boolean = signalVoiceRecordingEvent(
+        "signalVoiceRecordingStart",
+        buildJsonObject {
+            put("sessionId", sessionId)
+            put("codec", "speex")
+            put("sampleRate", encoderInfo.sampleRate)
+            put("bitRate", encoderInfo.bitRate)
+            put("bitstreamVersion", encoderInfo.bitstreamVersion)
+            put("frameSize", encoderInfo.frameSize)
+        },
+    )
+
+    @OptIn(ExperimentalEncodingApi::class)
+    suspend fun signalVoiceRecordingData(sessionId: Int, data: ByteArray): Boolean =
+        signalVoiceRecordingEvent(
+            "signalVoiceRecordingData",
+            buildJsonObject {
+                put("sessionId", sessionId)
+                put("data", Base64.encode(data))
+            },
+        )
+
+    suspend fun signalVoiceRecordingEnd(sessionId: Int, success: Boolean, error: String? = null): Boolean =
+        signalVoiceRecordingEvent(
+            "signalVoiceRecordingEnd",
+            buildJsonObject {
+                put("sessionId", sessionId)
+                put("success", success)
+                error?.let { put("error", it) }
+            },
+        )
+
+    private suspend fun signalVoiceRecordingEvent(function: String, detail: JsonObject): Boolean {
+        val runner = jsRunner ?: return false
+        if (!runner.readyState.value) {
+            return false
+        }
+        return try {
+            runner.evalWithResult("globalThis.$function($detail)")
+            runner === jsRunner && runner.readyState.value
+        } catch (e: Exception) {
+            logger.e(e) { "Unable to dispatch voice recording event" }
+            false
+        }
     }
 
     private fun launchIncomingAppMessageHandler(messages: Flow<AppMessageData>, scope: CoroutineScope) {

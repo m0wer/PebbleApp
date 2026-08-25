@@ -2,7 +2,7 @@ package io.rebble.libpebblecommon.connection.endpointmanager.audio
 
 import co.touchlab.kermit.Logger
 import io.rebble.libpebblecommon.SystemAppIDs
-import io.rebble.libpebblecommon.WatchConfigFlow
+import io.rebble.libpebblecommon.connection.endpointmanager.CompanionAppLifecycleManager
 import io.rebble.libpebblecommon.di.ConnectionCoroutineScope
 import io.rebble.libpebblecommon.packets.AudioStream
 import io.rebble.libpebblecommon.packets.DictationResult
@@ -17,25 +17,39 @@ import io.rebble.libpebblecommon.services.VoiceService
 import io.rebble.libpebblecommon.voice.TranscriptionProvider
 import io.rebble.libpebblecommon.voice.TranscriptionResult
 import io.rebble.libpebblecommon.voice.TranscriptionWord
+import io.rebble.libpebblecommon.voice.VoiceEncoderInfo
 import io.rebble.libpebblecommon.voice.toProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
+
+internal const val MAX_RECORDING_BASE64_CHARS = 512
+internal const val RECORDING_CHUNK_BYTES = MAX_RECORDING_BASE64_CHARS / 4 * 3
+
+internal fun ByteArray.recordingChunks(): Sequence<ByteArray> = sequence {
+    for (offset in indices step RECORDING_CHUNK_BYTES) {
+        yield(copyOfRange(offset, minOf(offset + RECORDING_CHUNK_BYTES, size)))
+    }
+}
 
 class VoiceSessionManager(
     private val voiceService: VoiceService,
     private val audioStreamService: AudioStreamService,
     private val watchScope: ConnectionCoroutineScope,
     private val transcriptionProvider: TranscriptionProvider,
+    private val companionAppLifecycleManager: CompanionAppLifecycleManager,
 ) {
     companion object Companion {
         private val logger = Logger.withTag("VoiceSession")
@@ -96,6 +110,74 @@ class VoiceSessionManager(
         }
     }
 
+    private suspend fun handleRecordingSession(
+        setupRequest: VoiceService.SessionSetupRequest,
+        encoderInfo: VoiceEncoderInfo.Speex,
+    ) {
+        val pkjsApp = companionAppLifecycleManager.activePKJSApp(setupRequest.appUuid)
+        if (pkjsApp == null || !pkjsApp.signalVoiceRecordingStart(setupRequest.sessionId, encoderInfo)) {
+            logger.w { "Recording session requested without a ready PKJS app for ${setupRequest.appUuid}" }
+            voiceService.send(makeSetupResult(setupRequest.sessionType, Result.FailServiceUnavailable, appInitiated = true))
+            return
+        }
+
+        try {
+            voiceService.send(makeSetupResult(setupRequest.sessionType, Result.Success, appInitiated = true))
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
+                pkjsApp.signalVoiceRecordingEnd(setupRequest.sessionId, success = false, error = "Recording cancelled")
+            }
+            throw e
+        } catch (e: Exception) {
+            logger.e(e) { "Unable to confirm recording session setup" }
+            pkjsApp.signalVoiceRecordingEnd(setupRequest.sessionId, success = false, error = "Recording setup failed")
+            return
+        }
+        val resultCompletable = CompletableDeferred<TranscriptionResult>()
+        _currentSession.value = CurrentSession(setupRequest, resultCompletable)
+
+        val result = try {
+            audioStreamService.dataFlowForSession(setupRequest.sessionId.toUShort()).collect { transfer ->
+                transfer.frames.forEach { frame ->
+                    frame.data.get().toByteArray().recordingChunks().forEach { chunk ->
+                        check(pkjsApp.signalVoiceRecordingData(setupRequest.sessionId, chunk)) {
+                            "PKJS runtime stopped while recording"
+                        }
+                    }
+                }
+            }
+            check(pkjsApp.signalVoiceRecordingEnd(setupRequest.sessionId, success = true)) {
+                "PKJS runtime stopped while completing recording"
+            }
+            TranscriptionResult.Success(emptyList())
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
+                pkjsApp.signalVoiceRecordingEnd(
+                    setupRequest.sessionId,
+                    success = false,
+                    error = "Recording cancelled",
+                )
+            }
+            _currentSession.value = null
+            throw e
+        } catch (e: Exception) {
+            logger.e(e) { "Error streaming recording to PKJS: ${e.message}" }
+            pkjsApp.signalVoiceRecordingEnd(setupRequest.sessionId, success = false, error = e.message)
+            TranscriptionResult.Error("Recording error: ${e.message}")
+        }
+
+        voiceService.send(
+            makeDictationResult(
+                sessionId = setupRequest.sessionId.toUShort(),
+                result = result.toProtocol(),
+                words = null,
+                appUuid = setupRequest.appUuid,
+            )
+        )
+        resultCompletable.complete(result)
+        _currentSession.value = null
+    }
+
     fun init() {
         watchScope.launch {
             voiceService.sessionSetupRequests.flowOn(Dispatchers.IO).collectLatest { setupRequest ->
@@ -118,6 +200,13 @@ class VoiceSessionManager(
                         result = Result.FailInvalidMessage,
                         appInitiated = appInitiated
                     ))
+                    return@collectLatest
+                }
+                if (setupRequest.sessionType == SessionType.Recording) {
+                    handleRecordingSession(
+                        setupRequest,
+                        setupRequest.encoderInfo as VoiceEncoderInfo.Speex,
+                    )
                     return@collectLatest
                 }
                 if (transcriptionProvider.canServeSession()) {
@@ -178,4 +267,5 @@ class VoiceSessionManager(
             }
         }
     }
+
 }

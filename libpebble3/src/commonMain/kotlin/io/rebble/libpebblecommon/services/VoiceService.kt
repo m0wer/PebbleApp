@@ -1,5 +1,6 @@
 package io.rebble.libpebblecommon.services
 
+import co.touchlab.kermit.Logger
 import io.rebble.libpebblecommon.connection.PebbleProtocolHandler
 import io.rebble.libpebblecommon.packets.OutgoingVoicePacket
 import io.rebble.libpebblecommon.packets.SessionSetupCommand
@@ -9,14 +10,23 @@ import io.rebble.libpebblecommon.packets.VoiceAttributeType
 import io.rebble.libpebblecommon.util.DataBuffer
 import io.rebble.libpebblecommon.voice.VoiceEncoderInfo
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlin.uuid.Uuid
 
 class VoiceService(private val protocolHandler: PebbleProtocolHandler) : ProtocolService {
+    private val logger = Logger.withTag("VoiceService")
 
     val sessionSetupRequests = protocolHandler.inboundMessages
         .filterIsInstance<SessionSetupCommand>()
-        .map {
+        .mapNotNull {
+            val sessionType = SessionType.entries.firstOrNull { type ->
+                type.value == it.sessionType.get()
+            }
+            if (sessionType == null) {
+                logger.w { "Ignoring voice setup with unknown session type ${it.sessionType.get()}" }
+                return@mapNotNull null
+            }
+
             val uuidData = it.attributes.firstOrNull { attr ->
                 attr.id.get() == VoiceAttributeType.AppUuid.value
             }?.content?.get()
@@ -31,9 +41,7 @@ class VoiceService(private val protocolHandler: PebbleProtocolHandler) : Protoco
             SessionSetupRequest(
                 appUuid = uuid,
                 sessionId = it.sessionId.get().toInt(),
-                sessionType = SessionType.entries.first {
-                        type -> type.value == it.sessionType.get()
-                },
+                sessionType = sessionType,
                 encoderInfo = VoiceEncoderInfo.fromProtocol(it.attributes)
             )
         }

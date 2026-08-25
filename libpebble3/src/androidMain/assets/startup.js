@@ -138,6 +138,9 @@ navigator.geolocation.clearWatch = (id) => {
         APP_MESSAGE_NACK: 'appmessage_nack',
         GET_TIMELINE_TOKEN_SUCCESS: 'getTimelineTokenSuccess',
         GET_TIMELINE_TOKEN_FAILURE: 'getTimelineTokenFailure',
+        VOICE_RECORDING_START: 'voicerecordingstart',
+        VOICE_RECORDING_DATA: 'voicerecordingdata',
+        VOICE_RECORDING_END: 'voicerecordingend',
     };
     Object.freeze(PebbleEventTypes);
     const DEFAULT_TIMEOUT = 5000; // 5 seconds
@@ -248,6 +251,15 @@ navigator.geolocation.clearWatch = (id) => {
     global.signalNewAppMessageData = (data) => {
         const payload = data ? JSON.parse(data) : {};
         dispatchPebbleEvent(PebbleEventTypes.APP_MESSAGE, { payload });
+    }
+    global.signalVoiceRecordingStart = (detail) => {
+        dispatchPebbleEvent(PebbleEventTypes.VOICE_RECORDING_START, detail);
+    }
+    global.signalVoiceRecordingData = (detail) => {
+        dispatchPebbleEvent(PebbleEventTypes.VOICE_RECORDING_DATA, detail);
+    }
+    global.signalVoiceRecordingEnd = (detail) => {
+        dispatchPebbleEvent(PebbleEventTypes.VOICE_RECORDING_END, detail);
     }
     global.signalAppMessageAck = (data) => {
         const payload = data ? JSON.parse(data) : {};
