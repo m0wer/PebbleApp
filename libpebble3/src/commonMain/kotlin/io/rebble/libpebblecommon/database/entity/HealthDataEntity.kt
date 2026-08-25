@@ -22,6 +22,8 @@ data class HealthDataEntity(
     @ColumnInfo(defaultValue = "0") val pluggedIn: Int = 0,
     @ColumnInfo(defaultValue = "0") val sleepIntentHint: Int = 0,
     @ColumnInfo(defaultValue = "0") val timezoneOffset15Minutes: Int = 0,
+    @ColumnInfo(defaultValue = "0") val sleepScore: Long = 0,
+    @ColumnInfo(defaultValue = "0") val sleepFlags: Int = 0,
 )
 
 @Entity(
