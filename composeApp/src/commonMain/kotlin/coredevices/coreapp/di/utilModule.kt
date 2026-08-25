@@ -87,6 +87,7 @@ val utilModule = module {
     single { get<CoreDatabase>().heartsDao() }
     single { get<CoreDatabase>().memfaultChunkDao() }
     single { get<CoreDatabase>().analyticsHeartbeatDao() }
+    single { get<CoreDatabase>().batteryHistoryDao() }
     single { UserConfigDao { get() } }
     single { CoreConfigHolder(defaultValue = CoreConfig(), get(), get()) }
     single { CoreConfigFlow(get<CoreConfigHolder>().config) }
@@ -120,5 +121,4 @@ val utilModule = module {
     single<UsersDao> { UsersDaoImpl({ get() }, get(), get(), get(), get()) }
     singleOf(::HealthSyncTracker)
     singleOf(::PlatformHealthSync)
-    single { EngDashOtaApiImpl() } bind EngDashOtaApi::class
 }
