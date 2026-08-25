@@ -208,6 +208,9 @@ class WatchManager(
     override val watches: StateFlow<List<PebbleDevice>> = _watches.asStateFlow()
     private val _connectionEvents = MutableSharedFlow<PebbleConnectionEvent>(extraBufferCapacity = 5)
     override val connectionEvents: Flow<PebbleConnectionEvent> = _connectionEvents.asSharedFlow()
+
+    override suspend fun getKnownWatches(): List<KnownWatchItem> = knownWatchDao.knownWatches()
+
     private val activeConnections = mutableSetOf<PebbleIdentifier>()
     private var connectionNum = 0
     private val timeInitialized = clock.now()
