@@ -4,6 +4,8 @@ This repository tracks the [official Pebble mobile app](https://github.com/cored
 and carries a small patch stack for personal builds. Refer to the upstream repository for the full
 architecture, development, and contribution documentation.
 
+**[Download the latest Android release](https://github.com/m0wer/PebbleApp/releases/latest)**
+
 ## Changes
 
 - Preserve and export detailed health and sleep-classification context
@@ -22,21 +24,26 @@ Branches named `publish/*` contain focused changes based directly on the upstrea
 
 ## Install
 
-Open the latest successful **Build** workflow run, download `android-debug-apk`, extract it, and
-install the APK:
+Download `PebbleApp-*.apk` from the
+[latest release](https://github.com/m0wer/PebbleApp/releases/latest). On the Android device, allow
+the browser or file manager to install unknown apps, then open the APK and approve the installation.
+You can also install it over ADB:
 
 ```shell
-adb install -r androidApp-debug.apk
+adb install -r PebbleApp-*.apk
 ```
 
-The CI artifact is a debug build. Its signature differs from the official app and may also change
-between CI runners. If Android reports a signature mismatch, uninstall the existing
-`coredevices.coreapp` package first; uninstalling removes its local app data.
+The release has a stable fork signature that differs from the official app. If Android reports a
+signature mismatch, uninstall the existing `coredevices.coreapp` package first; uninstalling
+removes its local app data. Future releases from this fork can then be installed as updates.
 
 For a stable signed release, add `ANDROID_RELEASE_KEYSTORE` (the base64-encoded JKS),
 `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEYSTORE_ALIAS`, and `RELEASE_KEY_PASSWORD` as repository
-secrets, then publish a GitHub release. The release workflow builds, signs, and attaches the APK
-and its SHA-256 checksum.
+secrets, then push a three- or four-component numeric tag such as `1.10.0.3`. The release workflow
+builds the signed APK, creates the GitHub Release, and attaches the APK and its SHA-256 checksum.
+
+The regular **Build** workflow also provides an `android-debug-apk` artifact for development
+testing. Debug artifacts are not stable release builds.
 
 To build locally, copy `androidApp/src/google-services-dummy.json` to
 `androidApp/src/google-services.json`, then run `./gradlew :androidApp:assembleDebug`. iOS builds
