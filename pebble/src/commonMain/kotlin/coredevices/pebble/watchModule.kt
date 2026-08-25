@@ -55,6 +55,7 @@ import coredevices.pebble.ui.NotificationAppsScreenViewModel
 import coredevices.pebble.ui.NotificationScreenViewModel
 import coredevices.pebble.ui.SharedLockerViewModel
 import coredevices.pebble.ui.HealthViewModel
+import coredevices.pebble.health.HealthDataExporter
 import coredevices.pebble.ui.WatchHomeViewModel
 import coredevices.pebble.ui.WatchOnboardingFinished
 import coredevices.pebble.ui.WatchSettingsScreenViewModel
@@ -266,6 +267,7 @@ val watchModule = module {
     }
     viewModelOf(::ModelManagementScreenViewModel)
     viewModelOf(::HealthViewModel)
+    singleOf(::HealthDataExporter)
 
     single { SearchClient(appId = "7683OW76EQ", apiKey = "252f4938082b8693a8a9fc0157d1d24f") }
 }

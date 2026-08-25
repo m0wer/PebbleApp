@@ -1,6 +1,7 @@
 package io.rebble.libpebblecommon.database.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "health_data")
@@ -17,7 +18,10 @@ data class HealthDataEntity(
     val distanceCm: Int,
     val heartRate: Int = 0,
     val heartRateZone: Int = 0,
-    val heartRateWeight: Int = 0
+    val heartRateWeight: Int = 0,
+    @ColumnInfo(defaultValue = "0") val pluggedIn: Int = 0,
+    @ColumnInfo(defaultValue = "0") val sleepIntentHint: Int = 0,
+    @ColumnInfo(defaultValue = "0") val timezoneOffset15Minutes: Int = 0,
 )
 
 @Entity(

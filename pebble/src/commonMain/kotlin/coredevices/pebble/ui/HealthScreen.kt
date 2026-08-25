@@ -1,5 +1,6 @@
 package coredevices.pebble.ui
 
+import PlatformShareLauncher
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,7 +44,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.rebble.libpebblecommon.health.HealthTimeRange
+import io.rebble.libpebblecommon.connection.AppContext
+import io.rebble.libpebblecommon.util.getTempFilePath
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
+import kotlinx.io.buffered
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.writeString
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
@@ -54,6 +66,9 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
     val dl by vm.dateLabel.collectAsState()
     val imperial by vm.imperialUnits.collectAsState()
     val hasHrmWatch by vm.hasHrmWatch.collectAsState()
+    val shareLauncher = koinInject<PlatformShareLauncher>()
+    val appContext = koinInject<AppContext>()
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         topBarParams.title("Health")
@@ -87,6 +102,26 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                 Icon(Icons.Default.Settings, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Health Settings")
+            }
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val json = vm.exportRawData()
+                        val file = withContext(Dispatchers.Default) {
+                            getTempFilePath(appContext, "pebble-health-export-v1.json").also {
+                                SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                    sink.writeString(json)
+                                }
+                            }
+                        }
+                        shareLauncher.share(null, file, "application/json")
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Icon(Icons.Default.Share, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Export Raw Data")
             }
             Spacer(Modifier.height(8.dp))
         }
