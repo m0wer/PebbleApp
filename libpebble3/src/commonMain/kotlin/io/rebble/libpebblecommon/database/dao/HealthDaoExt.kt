@@ -3,15 +3,29 @@ package io.rebble.libpebblecommon.database.dao
 import co.touchlab.kermit.Logger
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
+import io.rebble.libpebblecommon.health.SleepDiagnosticFlags
+import io.rebble.libpebblecommon.health.hasSleepDiagnosticFlag
 
 private val logger = Logger.withTag("HealthDaoExt")
 
+private fun HealthDataEntity.hasValidSleepDiagnostics(): Boolean =
+    sleepFlags.hasSleepDiagnosticFlag(SleepDiagnosticFlags.SCORE_VALID)
+
 internal fun HealthDataEntity.hasMinuteContext(): Boolean =
-    pluggedIn != 0 || sleepIntentHint != 0 || timezoneOffset15Minutes != 0
+    pluggedIn != 0 ||
+        sleepIntentHint != 0 ||
+        timezoneOffset15Minutes != 0 ||
+        hasValidSleepDiagnostics()
 
 internal fun shouldReplaceHealthData(existing: HealthDataEntity, incoming: HealthDataEntity): Boolean =
     incoming.steps > existing.steps ||
-        (incoming.steps == existing.steps && incoming.hasMinuteContext() && !existing.hasMinuteContext())
+        (
+            incoming.steps == existing.steps &&
+                (
+                    (incoming.hasValidSleepDiagnostics() && !existing.hasValidSleepDiagnostics()) ||
+                        (incoming.hasMinuteContext() && !existing.hasMinuteContext())
+                )
+        )
 
 /**
  * Inserts health data with priority based on step count. If data already exists for a timestamp,

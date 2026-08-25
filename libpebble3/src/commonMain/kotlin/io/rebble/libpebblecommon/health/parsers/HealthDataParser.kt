@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.health.OverlayType
+import io.rebble.libpebblecommon.health.SLEEP_DIAGNOSTICS_SIZE_BYTES
 import io.rebble.libpebblecommon.util.DataBuffer
 import io.rebble.libpebblecommon.util.Endian
 
@@ -13,12 +14,14 @@ private val logger = Logger.withTag("HealthDataParser")
  * Parses step/movement data from the watch's health payload.
  *
  * Supports multiple firmware versions:
+ * - Initial health firmware (version 4)
  * - Firmware 3.10 and below (version 5)
  * - Firmware 3.11 (version 6) - adds calorie and distance data
  * - Firmware 4.0 (version 7) - adds heart rate data
- * - Firmware 4.1 (version 8) - adds heart rate weight
+ * - Firmware 4.1 (version 12) - adds heart rate weight
  * - Firmware 4.3 (version 13) - adds heart rate zone
  * - Firmware 4.3+ (version 14) - adds Quiet Time sleep intent hint
+ * - Firmware version 15 - adds sleep score and diagnostic flags
  *
  * @param payload Raw byte array from the watch
  * @param itemSize Size of each data item in bytes
@@ -95,6 +98,8 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
             var heartRateWeight = 0
             var heartRateZone = 0
             var sleepIntentHint = 0
+            var sleepScore = 0L
+            var sleepFlags = 0
 
             if (version >= VERSION_FW_3_11) {
                 restingGramCalories = buffer.getUShort().toInt()
@@ -118,6 +123,11 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                 sleepIntentHint = buffer.getUByte().toInt()
             }
 
+            if (version >= VERSION_WITH_SLEEP_DIAGNOSTICS) {
+                sleepScore = buffer.getUInt().toLong()
+                sleepFlags = buffer.getUShort().toInt()
+            }
+
             records.add(
                 HealthDataEntity(
                     timestamp = currentTimestamp.toLong(),
@@ -135,6 +145,8 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                     pluggedIn = flags and 1,
                     sleepIntentHint = sleepIntentHint,
                     timezoneOffset15Minutes = timezoneOffset15Minutes,
+                    sleepScore = sleepScore,
+                    sleepFlags = sleepFlags,
                 )
             )
 
@@ -168,7 +180,8 @@ private fun stepRecordSize(version: UShort): Int =
         (if (version >= VERSION_FW_4_0) 1 else 0) +
         (if (version >= VERSION_FW_4_1) 2 else 0) +
         (if (version >= VERSION_FW_4_3) 1 else 0) +
-        (if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) 1 else 0)
+        (if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) 1 else 0) +
+        (if (version >= VERSION_WITH_SLEEP_DIAGNOSTICS) SLEEP_DIAGNOSTICS_SIZE_BYTES else 0)
 
 /**
  * Parses overlay data (sleep, activities) from the watch's health payload.
@@ -270,16 +283,20 @@ fun parseOverlayData(payload: ByteArray, itemSize: UShort): List<OverlayDataEnti
 // Firmware version constants for health data parsing
 private const val STEP_HEADER_SIZE = 9
 private val VERSION_FW_3_10_AND_BELOW: UShort = 5u
+private val VERSION_INITIAL: UShort = 4u
 private val VERSION_FW_3_11: UShort = 6u
 private val VERSION_FW_4_0: UShort = 7u
-private val VERSION_FW_4_1: UShort = 8u
+private val VERSION_FW_4_1: UShort = 12u
 private val VERSION_FW_4_3: UShort = 13u
 private val VERSION_FW_4_3_WITH_SLEEP_INTENT: UShort = 14u
+private val VERSION_WITH_SLEEP_DIAGNOSTICS: UShort = 15u
 private val SUPPORTED_STEP_VERSIONS = setOf(
+    VERSION_INITIAL,
     VERSION_FW_3_10_AND_BELOW,
     VERSION_FW_3_11,
     VERSION_FW_4_0,
     VERSION_FW_4_1,
     VERSION_FW_4_3,
     VERSION_FW_4_3_WITH_SLEEP_INTENT,
+    VERSION_WITH_SLEEP_DIAGNOSTICS,
 )

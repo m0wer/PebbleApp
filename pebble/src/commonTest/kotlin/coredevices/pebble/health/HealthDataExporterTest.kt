@@ -6,6 +6,7 @@ import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.database.entity.TransportType
+import io.rebble.libpebblecommon.health.SleepDiagnosticFlags
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -46,13 +47,65 @@ class HealthDataExporterTest {
             ),
         )
 
-        assertTrue(output.contains("\"schemaVersion\": 1"))
+        assertTrue(output.contains("\"schemaVersion\": 2"))
         assertTrue(output.indexOf("\"timestamp\": 60") < output.indexOf("\"timestamp\": 120"))
         assertTrue(output.contains("\"pluggedIn\": 1"))
         assertTrue(output.contains("\"sleepIntentHint\": 1"))
         assertTrue(output.contains("\"timezoneOffset15Minutes\": -4"))
+        assertTrue(output.contains("\"sleepDiagnostics\": null"))
         assertTrue(output.indexOf("\"type\": 1") < output.indexOf("\"type\": 2"))
         assertTrue(output.contains("""Watch \"One\""""))
         assertTrue(output.indexOf("Watch \\\"One\\\"") < output.indexOf("Watch Two"))
+    }
+
+    @Test
+    fun exportIncludesReadableValidSleepDiagnostics() {
+        val flags = SleepDiagnosticFlags.SCORE_VALID or
+            SleepDiagnosticFlags.COMPUTED_NOT_WORN or
+            SleepDiagnosticFlags.SESSION_ACCEPTED or
+            SleepDiagnosticFlags.FRAGMENT_ACCEPTED
+        val output = HealthDataExportFormatter.format(
+            minutes = listOf(
+                HealthDataEntity(
+                    60, 1, 0, 0, 0, 0, 0, 0, 0,
+                    sleepScore = 4_294_967_295L,
+                    sleepFlags = flags,
+                )
+            ),
+            overlays = emptyList(),
+            watches = emptyList(),
+        )
+
+        assertTrue(output.contains("\"score\": 4294967295"))
+        assertTrue(output.contains("\"flags\": $flags"))
+        assertTrue(output.contains("\"scoreValid\": true"))
+        assertTrue(output.contains("\"computedNotWorn\": true"))
+        assertTrue(output.contains("\"sessionAccepted\": true"))
+        assertTrue(output.contains("\"fragmentAccepted\": true"))
+        assertTrue(output.contains("\"rejectedNotWorn\": false"))
+        assertTrue(output.contains("\"hrmOffWristInput\": false"))
+    }
+
+    @Test
+    fun exportKeepsLegacyDaytimeAndAwakeMinutesIndependentOfOverlays() {
+        val output = HealthDataExportFormatter.format(
+            minutes = listOf(
+                HealthDataEntity(60, 0, 0, 0, 0, 0, 0, 0, 0),
+                HealthDataEntity(120, 25, 0, 0, 0, 0, 0, 0, 0),
+                HealthDataEntity(
+                    180, 0, 0, 0, 0, 0, 0, 0, 0,
+                    sleepScore = 50,
+                    sleepFlags = SleepDiagnosticFlags.SCORE_VALID,
+                ),
+            ),
+            overlays = listOf(OverlayDataEntity(120, 60, 1, 0, 0, 0, 0, 0)),
+            watches = emptyList(),
+        )
+
+        assertTrue(output.contains("\"timestamp\": 60"))
+        assertTrue(output.contains("\"timestamp\": 120"))
+        assertTrue(output.contains("\"timestamp\": 180"))
+        assertTrue(output.contains("\"steps\": 25"))
+        assertTrue(output.contains("\"sleepMinute\": false"))
     }
 }
