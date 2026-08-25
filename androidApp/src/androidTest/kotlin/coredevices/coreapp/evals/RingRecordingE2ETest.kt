@@ -52,6 +52,7 @@ import coredevices.util.transcription.CactusTranscriptionService
 import coredevices.util.transcription.HybridTranscriptionService
 import coredevices.util.transcription.KirinkiTranscriptionService
 import coredevices.util.transcription.NoOpInferenceBoost
+import coredevices.util.transcription.OpenAITranscriptionService
 import coredevices.util.transcription.PlatformSpeechRecognizer
 import coredevices.util.transcription.TranscriptionService
 import coredevices.util.CoreConfig
@@ -89,6 +90,7 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.parameter.parametersOf
 import org.koin.dsl.bind
 import org.koin.dsl.module
 import java.io.File
@@ -587,7 +589,10 @@ class RingRecordingE2ETest {
             CactusTranscriptionService(get(), get<CactusModelPathProvider>(), get(), NoOpInferenceBoost())
         }
         single {
-            HybridTranscriptionService(get(), get(), get(), get(), get(), PlatformSpeechRecognizer())
+            OpenAITranscriptionService(get(), get(), get<HttpClientEngine> { parametersOf(120.seconds) })
+        }
+        single {
+            HybridTranscriptionService(get(), get(), get(), get(), get(), get(), PlatformSpeechRecognizer())
         } bind TranscriptionService::class
 
         // MCP tools
