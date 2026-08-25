@@ -58,6 +58,7 @@ class Datalogging(
                     var offset = 0
                     while (offset + size <= data.size) {
                         val itemData = data.copyOfRange(offset, offset + size)
+                        webServices.storeAnalyticsHeartbeat(itemData, watchInfo)
                         webServices.uploadAnalyticsHeartbeat(itemData, watchInfo)
                         offset += size
                     }
