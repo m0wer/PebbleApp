@@ -1,7 +1,6 @@
 package coredevices.pebble.health
 
-import io.rebble.libpebblecommon.database.dao.HealthDao
-import io.rebble.libpebblecommon.database.dao.KnownWatchDao
+import io.rebble.libpebblecommon.connection.LibPebble
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
@@ -10,13 +9,12 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class HealthDataExporter(
-    private val healthDao: HealthDao,
-    private val knownWatchDao: KnownWatchDao,
+    private val libPebble: LibPebble,
 ) {
     suspend fun export(): String = HealthDataExportFormatter.format(
-        healthDao.getAllHealthData(),
-        healthDao.getAllOverlayEntries(),
-        knownWatchDao.knownWatches(),
+        libPebble.getAllHealthData(),
+        libPebble.getAllOverlayEntries(),
+        libPebble.getKnownWatches(),
     )
 }
 
