@@ -114,6 +114,7 @@ fun WatchPref<*>.section(): Section = when (this) {
     BoolWatchPref.Backlight -> Section.Display
     BoolWatchPref.AmbientLightSensor -> Section.Display
     BoolWatchPref.BacklightMotion -> Section.Display
+    BoolWatchPref.DoubleFlickDismissNotification -> Section.Notifications
     EnumWatchPref.Language -> Section.Display
 //    ColorWatchPref.SettingsMenuHighlightColor -> Section.Display
 //    ColorWatchPref.AppMenuHighlightColor -> Section.Display
