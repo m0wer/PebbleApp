@@ -6,11 +6,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,9 +39,12 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.paging.filter
 import co.touchlab.kermit.Logger
+import coredevices.database.HEARTED_COLLECTION_SLUG
 import coredevices.database.AppstoreSourceDao
 import coredevices.pebble.Platform
+import coredevices.pebble.services.AppstoreCollectionSort
 import coredevices.pebble.services.AppstoreService
+import coredevices.pebble.services.isRebbleFeed
 import io.rebble.libpebblecommon.connection.LibPebble
 import io.rebble.libpebblecommon.locker.AppType
 import io.rebble.libpebblecommon.metadata.WatchType
@@ -57,6 +68,8 @@ class AppStoreCollectionScreenViewModel(
 ): ViewModel(), KoinComponent {
     val logger = Logger.withTag("AppStoreCollectionScreenVM")
     var loadedApps by mutableStateOf<Flow<PagingData<CommonApp>>?>(null)
+    var selectedSort by mutableStateOf(AppstoreCollectionSort.Default)
+    var supportsMostLikedSorting by mutableStateOf(false)
     private var loadedAppsWatchType: WatchType? = null
     val appstoreService = viewModelScope.async {
         val source = appstoreSourceDao.getSourceById(appstoreSourceId)!!
@@ -66,6 +79,7 @@ class AppStoreCollectionScreenViewModel(
     private fun load(watchType: WatchType) {
         viewModelScope.launch {
             val service = appstoreService.await()
+            supportsMostLikedSorting = service.source.isRebbleFeed()
             val appTypeForFetch = when {
                 path.contains("category") -> null
                 else -> appType
@@ -77,6 +91,7 @@ class AppStoreCollectionScreenViewModel(
                         path,
                         appTypeForFetch,
                         watchType,
+                        selectedSort,
                     )
                 },
             ).flow.cachedIn(viewModelScope)
@@ -87,6 +102,13 @@ class AppStoreCollectionScreenViewModel(
         if (loadedApps == null || loadedAppsWatchType != watchType) {
             loadedAppsWatchType = watchType
             load(watchType)
+        }
+    }
+
+    fun selectSort(sort: AppstoreCollectionSort) {
+        if (selectedSort != sort) {
+            selectedSort = sort
+            loadedAppsWatchType?.let(::load)
         }
     }
 }
@@ -140,6 +162,15 @@ fun AppStoreCollectionScreen(
                 sharedLockerViewModel = sharedViewModel,
                 showWatchfaceOrderSetting = false,
             )
+            if (
+                viewModel.supportsMostLikedSorting &&
+                path != "collection/$HEARTED_COLLECTION_SLUG"
+            ) {
+                AppstoreCollectionSortFilter(
+                    selectedSort = viewModel.selectedSort,
+                    onSortSelected = viewModel::selectSort,
+                )
+            }
             if (apps == null || apps.loadState.refresh is LoadState.Loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -200,3 +231,48 @@ fun AppStoreCollectionScreen(
         }
     }
 }
+
+@Composable
+private fun AppstoreCollectionSortFilter(
+    selectedSort: AppstoreCollectionSort,
+    onSortSelected: (AppstoreCollectionSort) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        FilterChip(
+            selected = selectedSort != AppstoreCollectionSort.Default,
+            onClick = { expanded = !expanded },
+            label = { Text(selectedSort.displayName) },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            AppstoreCollectionSort.entries.forEach { sort ->
+                DropdownMenuItem(
+                    text = { Text(sort.displayName) },
+                    onClick = {
+                        onSortSelected(sort)
+                        expanded = false
+                    },
+                    leadingIcon = if (sort == selectedSort) {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Done,
+                                contentDescription = "Selected",
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
+}
+
+private val AppstoreCollectionSort.displayName: String
+    get() = when (this) {
+        AppstoreCollectionSort.Default -> "Default"
+        AppstoreCollectionSort.MostLiked -> "Most liked"
+    }

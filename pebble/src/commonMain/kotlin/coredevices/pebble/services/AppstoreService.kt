@@ -51,6 +51,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.Uuid
 
+enum class AppstoreCollectionSort(
+    val queryValue: String?,
+) {
+    Default(queryValue = null),
+    MostLiked(queryValue = "hearts"),
+}
+
 class AppstoreService(
     private val platform: Platform,
     httpClient: HttpClient,
@@ -475,6 +482,7 @@ class AppstoreService(
         path: String,
         appType: AppType?,
         hardwarePlatform: WatchType,
+        sort: AppstoreCollectionSort = AppstoreCollectionSort.Default,
     ): PagingSource<Int, CommonApp> {
         // Synthetic "Hearted" collection: served entirely from local hearts + per-app
         // metadata fetch, transparent to callers.
@@ -489,6 +497,7 @@ class AppstoreService(
                     put("hardware", hardwarePlatform.codename)
                     put("offset", offset.toString())
                     put("limit", params.loadSize)
+                    source.collectionSortParameter(sort)?.let { put("sort", it) }
                 }
                 val url = buildString {
                     append("${source.url}/v1/apps/$path")
@@ -674,6 +683,10 @@ fun enableByDefault(source: AppstoreSource, type: AppType, slug: String): Boolea
         "all" -> true
         else -> !source.isRebbleFeed()
     }
+}
+
+internal fun AppstoreSource.collectionSortParameter(sort: AppstoreCollectionSort): String? {
+    return if (isRebbleFeed()) sort.queryValue else null
 }
 
 fun HttpStatusCode.isSuccessOr(code: Int) = isSuccess() || value == code
