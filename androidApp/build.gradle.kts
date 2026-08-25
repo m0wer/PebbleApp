@@ -14,6 +14,9 @@ val properties = Properties().apply {
     }
 }
 val localReleaseBuild = properties["LOCAL_RELEASE_BUILD"]?.toString()?.toBooleanStrictOrNull() ?: false
+val uploadCrashlyticsMapping = providers.gradleProperty("UPLOAD_CRASHLYTICS_MAPPING")
+    .map { it.toBooleanStrict() }
+    .getOrElse(!localReleaseBuild)
 
 // Most recent tag reachable from HEAD, so a release branch versions from its own tag.
 val gitVersionName = providers.exec {
@@ -64,14 +67,11 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = uploadCrashlyticsMapping
+            }
             if (localReleaseBuild) {
                 signingConfig = signingConfigs.getByName("debug")
-                // Crashlytics regenerates a mapping-id resource every build
-                // (upToDateWhen=false), forcing aapt + a full R8 rerun even on
-                // null builds. Skip it for local release builds.
-                configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
-                    mappingFileUploadEnabled = false
-                }
             } else {
                 signingConfig = signingConfigs.getByName("release")
             }
