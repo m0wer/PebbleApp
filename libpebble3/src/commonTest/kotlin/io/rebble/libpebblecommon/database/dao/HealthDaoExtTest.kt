@@ -1,6 +1,7 @@
 package io.rebble.libpebblecommon.database.dao
 
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
+import io.rebble.libpebblecommon.health.SleepDiagnosticFlags
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -21,10 +22,24 @@ class HealthDaoExtTest {
         assertFalse(shouldReplaceHealthData(minute(steps = 2), minute(steps = 1, sleepIntentHint = 1)))
     }
 
+    @Test
+    fun equalStepValidDiagnosticsBackfillLegacyRowWithoutDowngradingIt() {
+        val legacy = minute(sleepIntentHint = 1, timezoneOffset15Minutes = -4)
+        val diagnostic = minute(
+            sleepIntentHint = 1,
+            timezoneOffset15Minutes = -4,
+            sleepFlags = SleepDiagnosticFlags.SCORE_VALID,
+        )
+
+        assertTrue(shouldReplaceHealthData(legacy, diagnostic))
+        assertFalse(shouldReplaceHealthData(diagnostic, legacy))
+    }
+
     private fun minute(
         steps: Int = 1,
         sleepIntentHint: Int = 0,
         timezoneOffset15Minutes: Int = 0,
+        sleepFlags: Int = 0,
     ) = HealthDataEntity(
         timestamp = 1,
         steps = steps,
@@ -37,5 +52,6 @@ class HealthDaoExtTest {
         distanceCm = 0,
         sleepIntentHint = sleepIntentHint,
         timezoneOffset15Minutes = timezoneOffset15Minutes,
+        sleepFlags = sleepFlags,
     )
 }
