@@ -48,6 +48,56 @@ jobs:
           name: android-debug-apk
           path: androidApp/build/outputs/apk/debug/androidApp-debug.apk
           if-no-files-found: error
+      - name: Configure Android release signing
+        if: >-
+          github.repository == 'm0wer/PebbleApp' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          ANDROID_RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEYSTORE_ALIAS: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_RELEASE_KEYSTORE"
+          test -n "$RELEASE_KEYSTORE_PASSWORD"
+          test -n "$RELEASE_KEYSTORE_ALIAS"
+          test -n "$RELEASE_KEY_PASSWORD"
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE" | base64 --decode > keystore.jks
+      - name: Build signed Android release
+        if: >-
+          github.repository == 'm0wer/PebbleApp' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: ./gradlew :androidApp:assembleRelease -PUPLOAD_CRASHLYTICS_MAPPING=false
+        env:
+          GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR || github.actor }}
+          GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN || github.token }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEYSTORE_ALIAS: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      - name: Prepare installable Android APK
+        if: >-
+          github.repository == 'm0wer/PebbleApp' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p dist
+          cp androidApp/build/outputs/apk/release/androidApp-release.apk \
+            "dist/PebbleApp-ci-${BUILD_SHA}.apk"
+          cd dist
+          sha256sum "PebbleApp-ci-${BUILD_SHA}.apk" > \
+            "PebbleApp-ci-${BUILD_SHA}.apk.sha256"
+      - name: Upload installable Android APK
+        if: >-
+          github.repository == 'm0wer/PebbleApp' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-installable-apk
+          path: |
+            dist/PebbleApp-ci-${{ github.sha }}.apk
+            dist/PebbleApp-ci-${{ github.sha }}.apk.sha256
+          if-no-files-found: error
 
   ios:
     runs-on: macos-15
