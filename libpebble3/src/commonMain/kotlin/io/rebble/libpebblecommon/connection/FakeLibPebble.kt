@@ -57,6 +57,8 @@ import io.rebble.libpebblecommon.packets.ProtocolCapsFlag
 import io.rebble.libpebblecommon.protocolhelpers.PebblePacket
 import io.rebble.libpebblecommon.services.DailySleep
 import io.rebble.libpebblecommon.services.FirmwareVersion
+import io.rebble.libpebblecommon.services.WatchAppDataBackup
+import io.rebble.libpebblecommon.services.WatchAppDataBackupInfo
 import io.rebble.libpebblecommon.services.WatchInfo
 import io.rebble.libpebblecommon.services.appmessage.AppMessageData
 import io.rebble.libpebblecommon.services.appmessage.AppMessageResult
@@ -731,6 +733,18 @@ class FakeConnectedDevice(
     override val installedLanguagePack: InstalledLanguagePack? = null
 
     override suspend fun requestHealthData(fullSync: Boolean): Boolean = true
+
+    override suspend fun getInfo(): WatchAppDataBackupInfo {
+        throw UnsupportedOperationException("Watch app data backup is unavailable in the fake device")
+    }
+
+    override suspend fun export(): WatchAppDataBackup {
+        throw UnsupportedOperationException("Watch app data backup is unavailable in the fake device")
+    }
+
+    override suspend fun restore(backup: WatchAppDataBackup) {
+        throw UnsupportedOperationException("Watch app data backup is unavailable in the fake device")
+    }
 }
 
 class FakeConnectedDeviceInRecovery(
