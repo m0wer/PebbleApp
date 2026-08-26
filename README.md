@@ -19,6 +19,8 @@ architecture, development, and contribution documentation.
   ([upstream PR #261](https://github.com/coredevices/mobileapp/pull/261)).
 - Sort Rebble app-store collections by likes (`publish/appstore-likes-sort`).
 - Persist and export firmware sleep diagnostics (`publish/sleep-diagnostics`).
+- Back up and restore third-party watch app data with watch authorization (requires compatible
+  PebbleOS firmware).
 
 Branches named `publish/*` contain focused changes based directly on the upstream branch.
 
