@@ -21,6 +21,7 @@ architecture, development, and contribution documentation.
 - Persist and export firmware sleep diagnostics (`publish/sleep-diagnostics`).
 - Back up and restore third-party watch app data with watch authorization (requires compatible
   PebbleOS firmware).
+- Check compatible Core watch firmware from [m0wer/PebbleOS](https://github.com/m0wer/PebbleOS).
 
 Branches named `publish/*` contain focused changes based directly on the upstream branch.
 
@@ -44,8 +45,12 @@ For a stable signed release, add `ANDROID_RELEASE_KEYSTORE` (the base64-encoded 
 secrets, then push a three- or four-component numeric tag such as `1.10.0.3`. The release workflow
 builds the signed APK, creates the GitHub Release, and attaches the APK and its SHA-256 checksum.
 
-The regular **Build** workflow also provides an `android-debug-apk` artifact for development
-testing. Debug artifacts are not stable release builds.
+The regular **Build** workflow provides an `android-debug-apk` for development and an
+`android-installable-apk` signed like tagged releases. Use the installable artifact to update an
+existing release without uninstalling it or losing app data.
+
+Compatible stable PebbleOS releases are checked automatically for Core watches. Enable **Use GitHub
+CI firmware** in the app's Debug settings to check the latest CI prerelease instead.
 
 To build locally, copy `androidApp/src/google-services-dummy.json` to
 `androidApp/src/google-services.json`, then run `./gradlew :androidApp:assembleDebug`. iOS builds
