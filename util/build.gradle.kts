@@ -207,6 +207,11 @@ buildkonfig {
         buildConfigField(FieldSpec.Type.STRING, "WISPR_AUTH_URL", gradleStringPropOrNull("wisprAuthUrl"), nullable = true)
         buildConfigField(FieldSpec.Type.STRING, "KIRINKI_URL", gradleStringPropOrNull("kirinkiUrl"), nullable = true)
         buildConfigField(FieldSpec.Type.STRING, "MEMFAULT_TOKEN", gradleStringPropOrNull("memfaultToken"), nullable = true)
+        buildConfigField(
+            FieldSpec.Type.STRING,
+            "PEBBLEOS_GITHUB_REPOSITORY",
+            gradleStringPropOrNull("pebbleOsGithubRepository") ?: "m0wer/PebbleOS",
+        )
         buildConfigField(FieldSpec.Type.STRING, "GOOGLE_CLIENT_ID", gradleStringPropOrNull("googleClientId"), nullable = true)
         buildConfigField(FieldSpec.Type.BOOLEAN, "GOOGLE_AUTH_ENABLED", gradleBooleanProp("googleAuthEnabled", default = true).toString())
         buildConfigField(FieldSpec.Type.BOOLEAN, "APPLE_AUTH_ENABLED", gradleBooleanProp("appleAuthEnabled", default = true).toString())

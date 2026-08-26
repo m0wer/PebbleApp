@@ -1738,6 +1738,21 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     },
                     isDebugSetting = true,
                 ),
+                basicSettingsToggleItem(
+                    title = "Use GitHub CI firmware",
+                    description = "Check prerelease PebbleOS CI builds instead of stable releases",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Debug,
+                    checked = coreConfig.useGithubFirmwareCiBuilds,
+                    onCheckChanged = {
+                        coreConfigHolder.update(
+                            coreConfig.copy(
+                                useGithubFirmwareCiBuilds = it,
+                            )
+                        )
+                    },
+                    isDebugSetting = true,
+                ),
                 basicSettingsDropdownItem(
                     id = OfflineSpeechRecognition,
                     title = "Offline Speech Recognition",
