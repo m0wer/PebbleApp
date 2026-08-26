@@ -182,6 +182,7 @@ import io.rebble.libpebblecommon.connection.endpointmanager.FirmwareUpdateErrorS
 import io.rebble.libpebblecommon.connection.endpointmanager.FirmwareUpdater
 import io.rebble.libpebblecommon.connection.endpointmanager.LanguagePackInstallState
 import io.rebble.libpebblecommon.database.entity.buildTimelineNotification
+import io.rebble.libpebblecommon.metadata.WatchHardwarePlatform
 import io.rebble.libpebblecommon.packets.blobdb.TimelineIcon
 import io.rebble.libpebblecommon.packets.blobdb.TimelineItem
 import io.rebble.libpebblecommon.services.blobdb.TimelineActionResult
@@ -1283,6 +1284,29 @@ fun WatchMenu(watch: PebbleDevice, navBarNav: NavBarNav) {
                 ) {
                     Text(
                         text = "PebbleOS $firmwareVersion",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+
+            val hardwareRevision = when (watch) {
+                is KnownPebbleDevice -> watch.watchType.revision
+                is BleDiscoveredPebbleDevice -> watch.pebbleScanRecord.extendedInfo
+                    ?.hardwarePlatform
+                    ?.toUByte()
+                    ?.let(WatchHardwarePlatform::fromProtocolNumber)
+                    ?.revision
+
+                else -> null
+            }
+            if (hardwareRevision != null) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                        .fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Hardware revision: $hardwareRevision",
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
