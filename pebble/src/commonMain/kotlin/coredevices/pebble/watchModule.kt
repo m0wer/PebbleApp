@@ -37,6 +37,7 @@ import coredevices.pebble.services.AppstoreService
 import coredevices.pebble.services.AppstoreSourceInitializer
 import coredevices.pebble.services.BatteryHistoryRepository
 import coredevices.pebble.services.EngDashOta
+import coredevices.pebble.services.GithubFirmware
 import coredevices.pebble.services.HybridTranscription
 import coredevices.pebble.services.LanguagePackRepository
 import coredevices.pebble.services.Memfault
@@ -202,6 +203,7 @@ val watchModule = module {
     factoryOf(::LibPebbleConfig)
     singleOf(::Memfault)
     singleOf(::EngDashOta)
+    single { GithubFirmware(get()) }
     singleOf(::MemfaultChunkQueue)
     singleOf(::AnalyticsIngest)
     singleOf(::AnalyticsHeartbeatQueue)
