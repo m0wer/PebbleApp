@@ -1,6 +1,7 @@
 package coredevices.pebble.ui
 
 import PlatformShareLauncher
+import DocumentAttachment
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
@@ -58,6 +61,8 @@ import kotlinx.datetime.LocalDate
 import kotlinx.io.buffered
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.writeString
+import rememberOpenDocumentLauncher
+import coredevices.pebble.backup.HealthBatteryBackupDocumentReader
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
@@ -78,6 +83,33 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
     val scope = rememberCoroutineScope()
     var exportError by remember { mutableStateOf<String?>(null) }
     var isExporting by remember { mutableStateOf(false) }
+    var backupStatus by remember { mutableStateOf<String?>(null) }
+    var backupError by remember { mutableStateOf<String?>(null) }
+    var isExportingBackup by remember { mutableStateOf(false) }
+    var isImportingBackup by remember { mutableStateOf(false) }
+    val launchBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
+        documents?.firstOrNull()?.let { document ->
+            scope.launch {
+                backupStatus = null
+                backupError = null
+                isImportingBackup = true
+                try {
+                    val counts = withContext(Dispatchers.Default) {
+                        val backup = document.source.use(HealthBatteryBackupDocumentReader::readUtf8)
+                        vm.importHealthBatteryBackup(backup)
+                    }
+                    backupStatus = "Imported ${counts.healthMinutes} health, ${counts.overlays} overlay, ${counts.batteryHistory} battery records."
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    healthExportLogger.e(e) { "Failed to import health and battery backup" }
+                    backupError = "Health and battery import failed. Try again."
+                } finally {
+                    isImportingBackup = false
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         topBarParams.title("Health")
@@ -148,7 +180,68 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                 Spacer(Modifier.width(4.dp))
                 Text(if (isExporting) "Exporting..." else "Export Raw Data")
             }
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        backupStatus = null
+                        backupError = null
+                        isExportingBackup = true
+                        try {
+                            val file = withContext(Dispatchers.Default) {
+                                val json = vm.exportHealthBatteryBackup()
+                                getTempFilePath(
+                                    appContext,
+                                    HEALTH_BATTERY_BACKUP_FILENAME,
+                                    HEALTH_EXPORT_CACHE_DIRECTORY,
+                                ).also {
+                                    SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                        sink.writeString(json)
+                                    }
+                                }
+                            }
+                            shareLauncher.share(null, file, "application/json")
+                            backupStatus = "Health and battery backup exported."
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            healthExportLogger.e(e) { "Failed to export health and battery backup" }
+                            backupError = "Health and battery export failed. Try again."
+                        } finally {
+                            isExportingBackup = false
+                        }
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = !isExportingBackup && !isImportingBackup,
+            ) {
+                Icon(Icons.Default.FileDownload, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (isExportingBackup) "Exporting Health & Battery Backup..." else "Export Health & Battery Backup")
+            }
+            TextButton(
+                onClick = { launchBackupDocument(listOf("application/json")) },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                enabled = !isExportingBackup && !isImportingBackup,
+            ) {
+                Icon(Icons.Default.FileUpload, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (isImportingBackup) "Importing Health & Battery Backup..." else "Import Health & Battery Backup")
+            }
             exportError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
+            backupStatus?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
+            backupError?.let {
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
@@ -161,6 +254,7 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
 }
 
 private const val HEALTH_EXPORT_CACHE_DIRECTORY = "exports"
+private const val HEALTH_BATTERY_BACKUP_FILENAME = "pebble-health-battery-backup-v1.json"
 
 @Composable
 private fun TimeRangeSelector(sel: HealthTimeRange, onSel: (HealthTimeRange) -> Unit) {

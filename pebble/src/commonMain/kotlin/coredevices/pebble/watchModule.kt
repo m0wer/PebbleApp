@@ -15,6 +15,9 @@ import coredevices.pebble.account.RealBootConfigProvider
 import coredevices.pebble.account.RealFirestoreKnownWatchesSync
 import coredevices.pebble.account.RealFirestoreLocker
 import coredevices.pebble.account.RealPebbleAccount
+import coredevices.pebble.backup.HealthBatteryBackupDataSource
+import coredevices.pebble.backup.HealthBatteryBackupRepository
+import coredevices.pebble.backup.RealHealthBatteryBackupDataSource
 import coredevices.pebble.firmware.BatteryChargedNotifier
 import coredevices.pebble.firmware.Cohorts
 import coredevices.pebble.firmware.FirmwareUpdateCheck
@@ -270,6 +273,8 @@ val watchModule = module {
     viewModelOf(::ModelManagementScreenViewModel)
     viewModelOf(::HealthViewModel)
     singleOf(::HealthDataExporter)
+    singleOf(::RealHealthBatteryBackupDataSource) bind HealthBatteryBackupDataSource::class
+    singleOf(::HealthBatteryBackupRepository)
 
     single { SearchClient(appId = "7683OW76EQ", apiKey = "252f4938082b8693a8a9fc0157d1d24f") }
 }
