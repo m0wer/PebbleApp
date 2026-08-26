@@ -127,6 +127,7 @@ import coredevices.pebble.account.BootConfigProvider
 import coredevices.pebble.account.PebbleAccount
 import coredevices.pebble.backup.AppSettingsBackupRepository
 import coredevices.pebble.backup.HealthBatteryBackupDocumentReader
+import coredevices.pebble.backup.WatchAppDataBackupRepository
 import coredevices.pebble.backup.WatchSettingsBackupRepository
 import coredevices.pebble.health.HealthSyncTracker
 import coredevices.pebble.health.PlatformHealthSync
@@ -167,12 +168,15 @@ import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.crashlytics.crashlytics
 import io.rebble.libpebblecommon.connection.AppContext
 import io.rebble.libpebblecommon.connection.ConnectedPebble
+import io.rebble.libpebblecommon.connection.ConnectedPebbleDevice
 import io.rebble.libpebblecommon.connection.KnownPebbleDevice
 import io.rebble.libpebblecommon.database.entity.HRMonitoringInterval
 import io.rebble.libpebblecommon.database.entity.HealthGender
 import io.rebble.libpebblecommon.js.PKJSApp
 import io.rebble.libpebblecommon.metadata.WatchType
 import io.rebble.libpebblecommon.packets.ProtocolCapsFlag
+import io.rebble.libpebblecommon.packets.WatchAppDataBackupStatus
+import io.rebble.libpebblecommon.services.WatchAppDataBackupException
 import io.rebble.libpebblecommon.util.getTempFilePath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -310,6 +314,7 @@ fun settingsBadgeTotal(): Int {
 
 private val logger = Logger.withTag("WatchSettingsScreen")
 private const val APP_SETTINGS_BACKUP_FILENAME = "pebble-app-settings-backup-v1.json"
+private const val WATCH_APP_DATA_BACKUP_FILENAME = "pebble-watch-app-data-backup-v1.json"
 private const val WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY = "exports"
 private const val WATCH_SETTINGS_BACKUP_FILENAME = "pebble-watch-settings-backup-v1.json"
 
@@ -367,9 +372,11 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val scope = rememberCoroutineScope()
     val watchSettingsBackupRepository = koinInject<WatchSettingsBackupRepository>()
     val appSettingsBackupRepository = koinInject<AppSettingsBackupRepository>()
+    val watchAppDataBackupRepository = koinInject<WatchAppDataBackupRepository>()
     val shareLauncher = koinInject<PlatformShareLauncher>()
     var appSettingsBackupBusy by remember { mutableStateOf(false) }
     var watchSettingsBackupBusy by remember { mutableStateOf(false) }
+    var watchAppDataBackupBusy by remember { mutableStateOf(false) }
     var openAIApiKey by remember { mutableStateOf("") }
     LaunchedEffect(integrationTokenStorage) {
         openAIApiKey = integrationTokenStorage.getToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY).orEmpty()
@@ -562,6 +569,10 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val weatherFetcher: WeatherFetcher = koinInject()
     val watches by libPebble.watches.collectAsState(null)
     val watchesCastable = watches ?: return null
+    val watchAppDataBackupTarget = watchesCastable
+        .filterIsInstance<ConnectedPebbleDevice>()
+        .filter { it.watchInfo.capabilities.contains(ProtocolCapsFlag.SupportsWatchAppDataBackup) }
+        .singleOrNull()
     val anyWatchSupportsSettingsSync = remember(watchesCastable) {
         watchesCastable.any {
             it is KnownPebbleDevice && it.capabilities.contains(
@@ -575,6 +586,43 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val healthSyncTracker: HealthSyncTracker = koinInject()
     val healthPlatformSyncEnabled by healthSyncTracker.enabled.collectAsState()
     val healthIsSyncing by platformHealthSync.syncing.collectAsState()
+    val launchWatchAppDataBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
+        documents?.drop(1)?.forEach { it.source.close() }
+        documents?.firstOrNull()?.let { document ->
+            val target = watchAppDataBackupTarget
+            if (target == null) {
+                document.source.close()
+                return@let
+            }
+            scope.launch {
+                watchAppDataBackupBusy = true
+                try {
+                    val backup = withContext(Dispatchers.Default) {
+                        document.source.use(HealthBatteryBackupDocumentReader::readUtf8)
+                    }
+                    watchAppDataBackupRepository.importBackup(backup, target)
+                    snackbarDisplay.showSnackbar("Watch app data restored.")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: WatchAppDataBackupException.Status) {
+                    logger.e(e) { "Watch rejected app data restore" }
+                    val message = when (e.status) {
+                        WatchAppDataBackupStatus.DENIED -> "Watch app data restore canceled on the watch."
+                        WatchAppDataBackupStatus.TARGET_NOT_EMPTY ->
+                            "Remove backed-up apps from the watch before restoring their data."
+                        WatchAppDataBackupStatus.STORAGE_FULL -> "The watch does not have enough storage for this backup."
+                        else -> "Watch app data restore failed. Try again."
+                    }
+                    snackbarDisplay.showSnackbar(message)
+                } catch (e: Exception) {
+                    logger.e(e) { "Failed to restore watch app data backup" }
+                    snackbarDisplay.showSnackbar("Watch app data restore failed. Try again.")
+                } finally {
+                    watchAppDataBackupBusy = false
+                }
+            }
+        }
+    }
     val launchAppSettingsBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
         documents?.firstOrNull()?.let { document ->
             scope.launch {
@@ -617,6 +665,8 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
             platformSttAvailable,
             appSettingsBackupBusy,
             watchSettingsBackupBusy,
+            watchAppDataBackupBusy,
+            watchAppDataBackupTarget,
         ) {
             listOfNotNull(
                 basicSettingsActionItem(
@@ -708,6 +758,53 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                         { launchWatchSettingsBackupDocument(listOf("application/json")) }
                     },
                     actionIcon = Icons.Default.FileUpload,
+                ),
+                basicSettingsActionItem(
+                    title = "Export Watch App Data",
+                    topLevelType = TopLevelType.Watch,
+                    section = Section.Backup,
+                    action = if (watchAppDataBackupBusy || watchAppDataBackupTarget == null) null else {
+                        {
+                            scope.launch {
+                                watchAppDataBackupBusy = true
+                                try {
+                                    val backup = watchAppDataBackupRepository.export(watchAppDataBackupTarget)
+                                    val file = withContext(Dispatchers.Default) {
+                                        getTempFilePath(
+                                            appContext,
+                                            WATCH_APP_DATA_BACKUP_FILENAME,
+                                            WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY,
+                                        ).also {
+                                            SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                                sink.writeString(backup)
+                                            }
+                                        }
+                                    }
+                                    shareLauncher.share(null, file, "application/json")
+                                    snackbarDisplay.showSnackbar("Watch app data backup exported.")
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    logger.e(e) { "Failed to export watch app data backup" }
+                                    snackbarDisplay.showSnackbar("Watch app data export failed. Try again.")
+                                } finally {
+                                    watchAppDataBackupBusy = false
+                                }
+                            }
+                        }
+                    },
+                    actionIcon = Icons.Default.FileDownload,
+                    show = { watchAppDataBackupTarget != null },
+                ),
+                basicSettingsActionItem(
+                    title = "Restore Watch App Data",
+                    topLevelType = TopLevelType.Watch,
+                    section = Section.Backup,
+                    action = if (watchAppDataBackupBusy || watchAppDataBackupTarget == null) null else {
+                        { launchWatchAppDataBackupDocument(listOf("application/json")) }
+                    },
+                    actionIcon = Icons.Default.FileUpload,
+                    show = { watchAppDataBackupTarget != null },
                 ),
                 basicSettingsActionItem(
                     title = "App Update Available",
