@@ -3,7 +3,9 @@ package coredevices.pebble.ui
 import AppUpdateTracker
 import CommonRoutes
 import CoreAppVersion
+import DocumentAttachment
 import NextBugReportContext
+import PlatformShareLauncher
 import PlatformUiContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,11 +36,14 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DoNotDisturb
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
@@ -116,6 +121,8 @@ import coredevices.pebble.PebbleFeatures
 import coredevices.pebble.Platform
 import coredevices.pebble.account.BootConfigProvider
 import coredevices.pebble.account.PebbleAccount
+import coredevices.pebble.backup.HealthBatteryBackupDocumentReader
+import coredevices.pebble.backup.WatchSettingsBackupRepository
 import coredevices.pebble.health.HealthSyncTracker
 import coredevices.pebble.health.PlatformHealthSync
 import coredevices.pebble.rememberLibPebble
@@ -161,15 +168,21 @@ import io.rebble.libpebblecommon.database.entity.HealthGender
 import io.rebble.libpebblecommon.js.PKJSApp
 import io.rebble.libpebblecommon.metadata.WatchType
 import io.rebble.libpebblecommon.packets.ProtocolCapsFlag
+import io.rebble.libpebblecommon.util.getTempFilePath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.io.buffered
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.writeString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import rememberOpenDocumentLauncher
 import theme.CoreAppTheme
 import theme.ThemeProvider
 import kotlin.math.roundToLong
@@ -204,6 +217,7 @@ enum class Section(val title: String, val icon: ImageVector) {
     About("About", Icons.Default.Info),
     Support("Get Help", Icons.Default.SupportAgent),
     Defaults("Defaults", Icons.Default.Tune),
+    Backup("Backup & Restore", Icons.Default.Backup),
     QuickLaunch("Quick Launch", Icons.Default.RocketLaunch), // watch only
     NotificationsWatch("Notifications", Icons.Default.Notifications), // watch only
     General("General", Icons.Default.Settings),
@@ -290,6 +304,8 @@ fun settingsBadgeTotal(): Int {
 }
 
 private val logger = Logger.withTag("WatchSettingsScreen")
+private const val WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY = "exports"
+private const val WATCH_SETTINGS_BACKUP_FILENAME = "pebble-watch-settings-backup-v1.json"
 
 internal fun CactusSTTMode.requiresCoreAccount(provider: CloudTranscriptionProvider): Boolean =
     provider == CloudTranscriptionProvider.Wispr &&
@@ -343,11 +359,38 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     }.distinctUntilChanged()
         .collectAsState(Firebase.auth.currentUser?.emailOrNull)
     val scope = rememberCoroutineScope()
+    val watchSettingsBackupRepository = koinInject<WatchSettingsBackupRepository>()
+    val shareLauncher = koinInject<PlatformShareLauncher>()
+    var watchSettingsBackupBusy by remember { mutableStateOf(false) }
     var openAIApiKey by remember { mutableStateOf("") }
     LaunchedEffect(integrationTokenStorage) {
         openAIApiKey = integrationTokenStorage.getToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY).orEmpty()
     }
     val appContext = koinInject<AppContext>()
+    val launchWatchSettingsBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
+        documents?.firstOrNull()?.let { document ->
+            scope.launch {
+                watchSettingsBackupBusy = true
+                try {
+                    val counts = withContext(Dispatchers.Default) {
+                        val backup = document.source.use(HealthBatteryBackupDocumentReader::readUtf8)
+                        watchSettingsBackupRepository.importBackup(backup)
+                    }
+                    snackbarDisplay.showSnackbar(
+                        "Imported ${counts.watchPrefs} watch, ${counts.healthSettings} health, " +
+                            "and ${counts.weatherLocations} weather settings."
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.e(e) { "Failed to import watch settings backup" }
+                    snackbarDisplay.showSnackbar("Watch settings import failed. Try again.")
+                } finally {
+                    watchSettingsBackupBusy = false
+                }
+            }
+        }
+    }
     val appVersion = koinInject<CoreAppVersion>()
     val platform = koinInject<Platform>()
     val modelManager: ModelManager = koinInject()
@@ -514,8 +557,54 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
             watchPrefs,
             rebbleVoiceAvailable,
             platformSttAvailable,
+            watchSettingsBackupBusy,
         ) {
             listOfNotNull(
+                basicSettingsActionItem(
+                    title = "Export Watch Settings",
+                    topLevelType = TopLevelType.Watch,
+                    section = Section.Backup,
+                    action = if (watchSettingsBackupBusy) null else {
+                        {
+                            scope.launch {
+                                watchSettingsBackupBusy = true
+                                try {
+                                    val file = withContext(Dispatchers.Default) {
+                                        val backup = watchSettingsBackupRepository.export()
+                                        getTempFilePath(
+                                            appContext,
+                                            WATCH_SETTINGS_BACKUP_FILENAME,
+                                            WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY,
+                                        ).also {
+                                            SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                                sink.writeString(backup)
+                                            }
+                                        }
+                                    }
+                                    shareLauncher.share(null, file, "application/json")
+                                    snackbarDisplay.showSnackbar("Watch settings backup exported.")
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    logger.e(e) { "Failed to export watch settings backup" }
+                                    snackbarDisplay.showSnackbar("Watch settings export failed. Try again.")
+                                } finally {
+                                    watchSettingsBackupBusy = false
+                                }
+                            }
+                        }
+                    },
+                    actionIcon = Icons.Default.FileDownload,
+                ),
+                basicSettingsActionItem(
+                    title = "Import Watch Settings",
+                    topLevelType = TopLevelType.Watch,
+                    section = Section.Backup,
+                    action = if (watchSettingsBackupBusy) null else {
+                        { launchWatchSettingsBackupDocument(listOf("application/json")) }
+                    },
+                    actionIcon = Icons.Default.FileUpload,
+                ),
                 basicSettingsActionItem(
                     title = "App Update Available",
                     description = "Please update the Pebble App!",

@@ -360,6 +360,7 @@ fun initKoin(
                 single { get<Database>().healthStatDao() }
                 singleOf(::HealthDataProcessor)
                 single { get<Database>().watchPrefDao() }
+                single { get<Database>().watchSettingsBackupDao() }
                 single { get<Database>().weatherAppDao() }
                 single { get<Database>().appPrefsDao() }
                 singleOf(::LegacyBtClassicMigrator)

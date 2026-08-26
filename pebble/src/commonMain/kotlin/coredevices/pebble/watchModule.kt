@@ -18,6 +18,9 @@ import coredevices.pebble.account.RealPebbleAccount
 import coredevices.pebble.backup.HealthBatteryBackupDataSource
 import coredevices.pebble.backup.HealthBatteryBackupRepository
 import coredevices.pebble.backup.RealHealthBatteryBackupDataSource
+import coredevices.pebble.backup.RealWatchSettingsBackupDataSource
+import coredevices.pebble.backup.WatchSettingsBackupDataSource
+import coredevices.pebble.backup.WatchSettingsBackupRepository
 import coredevices.pebble.firmware.BatteryChargedNotifier
 import coredevices.pebble.firmware.Cohorts
 import coredevices.pebble.firmware.FirmwareUpdateCheck
@@ -275,6 +278,8 @@ val watchModule = module {
     singleOf(::HealthDataExporter)
     singleOf(::RealHealthBatteryBackupDataSource) bind HealthBatteryBackupDataSource::class
     singleOf(::HealthBatteryBackupRepository)
+    singleOf(::RealWatchSettingsBackupDataSource) bind WatchSettingsBackupDataSource::class
+    singleOf(::WatchSettingsBackupRepository)
 
     single { SearchClient(appId = "7683OW76EQ", apiKey = "252f4938082b8693a8a9fc0157d1d24f") }
 }
