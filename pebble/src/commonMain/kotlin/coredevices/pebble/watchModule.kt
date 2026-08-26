@@ -17,6 +17,9 @@ import coredevices.pebble.account.RealFirestoreLocker
 import coredevices.pebble.account.RealPebbleAccount
 import coredevices.pebble.backup.HealthBatteryBackupDataSource
 import coredevices.pebble.backup.HealthBatteryBackupRepository
+import coredevices.pebble.backup.AppSettingsBackupDataSource
+import coredevices.pebble.backup.AppSettingsBackupRepository
+import coredevices.pebble.backup.RealAppSettingsBackupDataSource
 import coredevices.pebble.backup.RealHealthBatteryBackupDataSource
 import coredevices.pebble.backup.RealWatchSettingsBackupDataSource
 import coredevices.pebble.backup.WatchSettingsBackupDataSource
@@ -280,6 +283,8 @@ val watchModule = module {
     singleOf(::HealthBatteryBackupRepository)
     singleOf(::RealWatchSettingsBackupDataSource) bind WatchSettingsBackupDataSource::class
     singleOf(::WatchSettingsBackupRepository)
+    singleOf(::RealAppSettingsBackupDataSource) bind AppSettingsBackupDataSource::class
+    singleOf(::AppSettingsBackupRepository)
 
     single { SearchClient(appId = "7683OW76EQ", apiKey = "252f4938082b8693a8a9fc0157d1d24f") }
 }
