@@ -27,6 +27,7 @@ import io.rebble.libpebblecommon.database.dao.TimelinePinRealDao
 import io.rebble.libpebblecommon.database.dao.TimelineReminderRealDao
 import io.rebble.libpebblecommon.database.dao.VibePatternDao
 import io.rebble.libpebblecommon.database.dao.WatchPrefRealDao
+import io.rebble.libpebblecommon.database.dao.WatchSettingsBackupDao
 import io.rebble.libpebblecommon.database.dao.WeatherAppRealDao
 import io.rebble.libpebblecommon.database.entity.AppPrefsEntryDao
 import io.rebble.libpebblecommon.database.entity.AppPrefsEntryEntity
@@ -156,6 +157,7 @@ abstract class Database : RoomDatabase() {
     abstract fun healthDao(): HealthDao
     abstract fun healthStatDao(): HealthStatDao
     abstract fun watchPrefDao(): WatchPrefRealDao
+    abstract fun watchSettingsBackupDao(): WatchSettingsBackupDao
     abstract fun weatherAppDao(): WeatherAppRealDao
     abstract fun appPrefsDao(): AppPrefsEntryDao
     abstract fun notificationRuleDao(): NotificationRuleDao
