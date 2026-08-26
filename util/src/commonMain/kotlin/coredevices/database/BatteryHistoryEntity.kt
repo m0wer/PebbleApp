@@ -62,6 +62,9 @@ interface BatteryHistoryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(row: BatteryHistoryEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnoringConflicts(rows: List<BatteryHistoryEntity>): List<Long>
+
     @Query("SELECT * FROM battery_history ORDER BY timestampSeconds DESC, serial ASC, id ASC LIMIT 1")
     fun observeLatest(): Flow<BatteryHistoryEntity?>
 
