@@ -13,6 +13,8 @@ import io.rebble.libpebblecommon.health.HealthTimeRange
 import io.rebble.libpebblecommon.health.OverlayType
 import io.rebble.libpebblecommon.metadata.supportsHrm
 import coredevices.pebble.health.HealthDataExporter
+import coredevices.pebble.backup.HealthBatteryBackupImportCounts
+import coredevices.pebble.backup.HealthBatteryBackupRepository
 
 import io.rebble.libpebblecommon.services.DailySleep
 import kotlinx.coroutines.async
@@ -99,6 +101,7 @@ data class HeartRateUiState(
 class HealthViewModel(
     private val libPebble: LibPebble,
     private val healthDataExporter: HealthDataExporter,
+    private val healthBatteryBackupRepository: HealthBatteryBackupRepository,
 ) : ViewModel() {
     var selectedTimeRange by mutableStateOf(HealthTimeRange.Daily)
     var dateOffset by mutableStateOf(0)
@@ -140,6 +143,14 @@ class HealthViewModel(
     fun navigateForward() { if (dateOffset < 0) dateOffset++ }
 
     suspend fun exportRawData(): String = healthDataExporter.export()
+
+    suspend fun exportHealthBatteryBackup(): String = healthBatteryBackupRepository.export()
+
+    suspend fun importHealthBatteryBackup(document: String): HealthBatteryBackupImportCounts {
+        val counts = healthBatteryBackupRepository.importBackup(document)
+        loadData(selectedTimeRange, dateOffset)
+        return counts
+    }
 
     private suspend fun loadData(range: HealthTimeRange, offset: Int) {
         val tz = TimeZone.currentSystemDefault()

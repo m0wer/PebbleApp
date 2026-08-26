@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,12 @@ interface HealthDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOverlayData(data: List<OverlayDataEntity>)
+
+    @Transaction
+    suspend fun mergeBackupData(healthData: List<HealthDataEntity>, overlays: List<OverlayDataEntity>) {
+        if (healthData.isNotEmpty()) insertHealthData(healthData)
+        if (overlays.isNotEmpty()) insertOverlayData(overlays)
+    }
 
     @Query("SELECT * FROM health_data WHERE timestamp >= :start AND timestamp <= :end ORDER BY timestamp ASC")
     fun getHealthData(start: Long, end: Long): Flow<List<HealthDataEntity>>
