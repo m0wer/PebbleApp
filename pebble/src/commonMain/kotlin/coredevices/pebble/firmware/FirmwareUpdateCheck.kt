@@ -3,6 +3,7 @@ package coredevices.pebble.firmware
 import co.touchlab.kermit.Logger
 import coredevices.analytics.CoreAnalytics
 import coredevices.pebble.services.EngDashOta
+import coredevices.pebble.services.GithubFirmware
 import coredevices.pebble.services.Memfault
 import coredevices.util.CoreConfigFlow
 import io.rebble.libpebblecommon.connection.FirmwareUpdateCheckResult
@@ -42,6 +43,7 @@ import kotlin.time.Instant
 class FirmwareUpdateCheck(
     private val memfault: Memfault,
     private val engDashOta: EngDashOta,
+    private val githubFirmware: GithubFirmware,
     private val cohorts: Cohorts,
     private val coreConfig: CoreConfigFlow,
     private val coreAnalytics: CoreAnalytics,
@@ -61,6 +63,7 @@ class FirmwareUpdateCheck(
     private data class CacheEntry(
         val fwVersion: String,
         val isRecovery: Boolean,
+        val useGithubFirmwareCiBuilds: Boolean,
         val result: FirmwareUpdateCheckResult,
         val expiresAt: Instant,
     )
@@ -72,11 +75,16 @@ class FirmwareUpdateCheck(
         val key = CacheKey(platform = watch.platform, serial = watch.serial)
         val fwVersion = watch.runningFwVersion.stringVersion
         val isRecovery = watch.runningFwVersion.isRecovery
+        val useGithubFirmwareCiBuilds = coreConfig.value.useGithubFirmwareCiBuilds
         val now = clock.now()
         if (!force) {
             mutex.withLock {
                 cache[key]
-                    ?.takeIf { it.fwVersion == fwVersion && it.isRecovery == isRecovery }
+                    ?.takeIf {
+                        it.fwVersion == fwVersion &&
+                            it.isRecovery == isRecovery &&
+                            it.useGithubFirmwareCiBuilds == useGithubFirmwareCiBuilds
+                    }
                     ?.takeIf { it.expiresAt > now }
                     ?.let {
                         logger.v { "Serving FWUP from cache" }
@@ -89,7 +97,13 @@ class FirmwareUpdateCheck(
         // must retry on the next connect, not be locked in for the TTL.
         if (result !is FirmwareUpdateCheckResult.UpdateCheckFailed) {
             mutex.withLock {
-                cache[key] = CacheEntry(fwVersion, isRecovery, result, now + CACHE_TTL)
+                cache[key] = CacheEntry(
+                    fwVersion,
+                    isRecovery,
+                    useGithubFirmwareCiBuilds,
+                    result,
+                    now + CACHE_TTL,
+                )
             }
         }
         return result
@@ -99,6 +113,34 @@ class FirmwareUpdateCheck(
         watch.platform == UNKNOWN -> FirmwareUpdateCheckResult.UpdateCheckFailed("Unknown platform")
         watch.platform.isCoreDevice() -> engDashOta.getLatestFirmware(watch)
         else -> cohorts.getLatestFirmware(watch)
+    }
+
+    private fun engDashOtaEnabled(): Boolean =
+        CommonBuildKonfig.BUG_URL != null && coreConfig.value.useEngDashOta
+
+    /** Prefer GitHub releases, then eng-dash when opted in, with the existing source as fallback. */
+    private suspend fun coreDeviceCheck(watch: WatchInfo): FirmwareUpdateCheckResult {
+        val githubResult = githubFirmware.getLatestFirmware(
+            watch = watch,
+            useCiBuilds = coreConfig.value.useGithubFirmwareCiBuilds,
+        )
+        if (githubResult !is FirmwareUpdateCheckResult.UpdateCheckFailed) {
+            return githubResult
+        }
+        logger.w { "GitHub firmware check failed (${githubResult.error}); falling back" }
+        if (engDashOtaEnabled()) {
+            val result = engDashOta.getLatestFirmware(watch)
+            if (result !is FirmwareUpdateCheckResult.UpdateCheckFailed) {
+                return result
+            }
+            logger.w { "eng-dash OTA check failed (${result.error}); falling back" }
+            coreAnalytics.logEvent("core_ota_failed")
+        }
+        return if (CommonBuildKonfig.MEMFAULT_TOKEN != null) {
+            memfault.getLatestFirmware(watch)
+        } else {
+            cohorts.getLatestFirmware(watch)
+        }
     }
 
     companion object {

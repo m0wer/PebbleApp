@@ -100,7 +100,13 @@ data class CoreConfig(
     /** Stops the ring scan/sync loop, for when another profile's app instance owns the ring. */
     val disableRingBluetoothSync: Boolean = false,
     val notifyWatchFullyCharged: Boolean = true,
-)
+    val useEngDashOta: Boolean = true,
+    val useGithubFirmwareCiBuilds: Boolean = false,
+) {
+    /** Null until the user picks explicitly; the settings [Json] omits defaults, so a
+     * locale-derived default here would never be persisted. */
+    val resolvedWeatherUnits: WeatherUnit get() = weatherUnits ?: deviceDefaultWeatherUnit()
+}
 
 @Serializable
 data class STTConfig(
