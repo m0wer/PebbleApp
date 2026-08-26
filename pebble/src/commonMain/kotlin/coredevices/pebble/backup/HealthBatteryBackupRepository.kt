@@ -3,7 +3,6 @@ package coredevices.pebble.backup
 import coredevices.database.BatteryHistoryDao
 import coredevices.database.BatteryHistoryEntity
 import io.rebble.libpebblecommon.connection.LibPebble
-import io.rebble.libpebblecommon.database.dao.HealthDao
 
 interface HealthBatteryBackupDataSource {
     suspend fun read(): HealthBatteryBackupExportData
@@ -29,7 +28,6 @@ class HealthBatteryBackupRepository(
 
 class RealHealthBatteryBackupDataSource(
     private val libPebble: LibPebble,
-    private val healthDao: HealthDao,
     private val batteryHistoryDao: BatteryHistoryDao,
 ) : HealthBatteryBackupDataSource {
     override suspend fun read(): HealthBatteryBackupExportData = HealthBatteryBackupExportData(
@@ -42,7 +40,7 @@ class RealHealthBatteryBackupDataSource(
     )
 
     override suspend fun merge(data: HealthBatteryBackupImportData): HealthBatteryBackupImportCounts {
-        healthDao.mergeBackupData(data.healthMinutes, data.overlays)
+        libPebble.mergeHealthBackupData(data.healthMinutes, data.overlays)
         batteryHistoryDao.insertAllIgnoringConflicts(data.batteryHistory.map { it.copy(id = 0) })
         return HealthBatteryBackupImportCounts(
             healthMinutes = data.healthMinutes.size,

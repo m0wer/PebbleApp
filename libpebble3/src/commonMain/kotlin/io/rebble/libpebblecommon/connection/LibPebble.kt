@@ -28,8 +28,11 @@ import io.rebble.libpebblecommon.database.dao.HealthAggregates
 import io.rebble.libpebblecommon.database.dao.TimelineNotificationRealDao
 import io.rebble.libpebblecommon.database.dao.VibePatternDao
 import io.rebble.libpebblecommon.database.dao.WatchPreference
+import io.rebble.libpebblecommon.database.dao.WatchSettingsBackupDao
+import io.rebble.libpebblecommon.database.entity.AppPrefsEntry
 import io.rebble.libpebblecommon.database.entity.CalendarEntity
 import io.rebble.libpebblecommon.database.entity.HealthDataEntity
+import io.rebble.libpebblecommon.database.entity.HealthSettingsEntry
 import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.MuteState
 import io.rebble.libpebblecommon.database.entity.NotificationEntity
@@ -37,6 +40,10 @@ import io.rebble.libpebblecommon.database.entity.NotificationRuleEntity
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.database.entity.TimelineNotification
 import io.rebble.libpebblecommon.database.entity.TimelinePin
+import io.rebble.libpebblecommon.database.entity.WeatherPrefsValue
+import io.rebble.libpebblecommon.database.entity.WeatherPrefsValue.Companion.encodeToString
+import io.rebble.libpebblecommon.database.entity.WatchPref
+import io.rebble.libpebblecommon.database.entity.WatchPrefItem
 import io.rebble.libpebblecommon.di.LibPebbleCoroutineScope
 import io.rebble.libpebblecommon.di.initKoin
 import io.rebble.libpebblecommon.health.Health
@@ -90,7 +97,7 @@ sealed class PebbleConnectionEvent {
 @Stable
 interface LibPebble : Scanning, RequestSync, LockerApi, NotificationApps, CallManagement, Calendar,
     OtherPebbleApps, PKJSToken, Watches, Errors, Contacts, AnalyticsEvents, HealthApi, WatchPrefs,
-    SystemGeolocation, Timeline, Vibrations, Weather, HealthDataApi {
+    SystemGeolocation, Timeline, Vibrations, Weather, HealthDataApi, WatchSettingsBackupApi {
     fun init()
 
     val config: StateFlow<LibPebbleConfig>
@@ -199,6 +206,19 @@ interface HealthDataApi {
 
     /** Wipes all health data and populates 30 days of fake data for testing. */
     suspend fun populateDebugHealthData()
+
+    suspend fun mergeHealthBackupData(healthData: List<HealthDataEntity>, overlays: List<OverlayDataEntity>)
+}
+
+data class WatchSettingsBackupSnapshot(
+    val watchPrefs: List<WatchPrefItem>,
+    val healthSettings: List<HealthSettingsEntry>,
+    val weatherLocationUuids: List<Uuid>?,
+)
+
+interface WatchSettingsBackupApi {
+    suspend fun getWatchSettingsBackupSnapshot(): WatchSettingsBackupSnapshot
+    suspend fun replaceWatchSettingsBackup(snapshot: WatchSettingsBackupSnapshot)
 }
 
 interface Weather {
@@ -413,6 +433,7 @@ class LibPebble3(
     private val vibePatternDao: VibePatternDao,
     private val watchPreferences: WatchPrefs,
     private val weatherManager: WeatherManager,
+    private val watchSettingsBackupDao: WatchSettingsBackupDao,
 ) : LibPebble, Scanning by scanning, RequestSync by webSyncManager, LockerApi by locker,
     NotificationApps by notificationApi, Calendar by phoneCalendarSyncer,
     OtherPebbleApps by otherPebbleApps, PKJSToken by jsTokenUtil, Watches by watchManager,
@@ -497,6 +518,28 @@ class LibPebble3(
 
     override suspend fun updateTimeIfNeeded() {
         forEachConnectedWatch { updateTimeIfNeeded() }
+    }
+
+    override suspend fun getWatchSettingsBackupSnapshot(): WatchSettingsBackupSnapshot {
+        val weatherApp = watchSettingsBackupDao.getAppPrefsEntry(WatchSettingsBackupDao.WEATHER_APP_ID)
+        return WatchSettingsBackupSnapshot(
+            watchPrefs = watchSettingsBackupDao.getWatchPrefs(WatchPref.enumeratePrefs().map { it.id }),
+            healthSettings = watchSettingsBackupDao.getHealthSettings(WatchSettingsBackupDao.HEALTH_SETTINGS_IDS),
+            weatherLocationUuids = weatherApp?.let { WeatherPrefsValue.fromString(it.value)?.locationUuids },
+        )
+    }
+
+    override suspend fun replaceWatchSettingsBackup(snapshot: WatchSettingsBackupSnapshot) {
+        watchSettingsBackupDao.replaceSettings(
+            snapshot.watchPrefs,
+            snapshot.healthSettings,
+            snapshot.weatherLocationUuids?.let {
+                AppPrefsEntry(
+                    WatchSettingsBackupDao.WEATHER_APP_ID,
+                    WeatherPrefsValue(it).encodeToString(),
+                )
+            },
+        )
     }
 
     private suspend fun forEachConnectedWatch(block: suspend ConnectedPebbleDevice.() -> Unit) {
