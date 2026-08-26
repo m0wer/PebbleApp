@@ -29,6 +29,7 @@ enum class ProtocolEndpoint(val value: UShort) {
     SCREENSHOT(8000u),
     FILE_INSTALL_MANAGER(8181u),
     GET_BYTES(9000u),
+    WATCH_APP_DATA_BACKUP(9001u),
     AUDIO_STREAMING(10000u),
     APP_REORDER(43981u /* 0xabcd */),
     BLOBDB_V1(45531u /* 0xb1db */),

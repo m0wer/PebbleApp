@@ -22,6 +22,7 @@ import io.rebble.libpebblecommon.packets.screenshotPacketsRegister
 import io.rebble.libpebblecommon.packets.systemPacketsRegister
 import io.rebble.libpebblecommon.packets.timePacketsRegister
 import io.rebble.libpebblecommon.packets.voicePacketsRegister
+import io.rebble.libpebblecommon.packets.watchAppDataBackupPacketsRegister
 
 /**
  * Singleton to track endpoint / type discriminators for deserialization
@@ -55,6 +56,7 @@ object PacketRegistry {
         dataLoggingPacketsRegister()
         getBytesIncomingPacketsRegister()
         healthSyncPacketsRegister()
+        watchAppDataBackupPacketsRegister()
     }
 
     /**

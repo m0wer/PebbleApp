@@ -16,6 +16,8 @@ import io.rebble.libpebblecommon.music.PlaybackState
 import io.rebble.libpebblecommon.music.RepeatType
 import io.rebble.libpebblecommon.packets.ProtocolCapsFlag
 import io.rebble.libpebblecommon.protocolhelpers.PebblePacket
+import io.rebble.libpebblecommon.services.WatchAppDataBackup as WatchAppDataBackupData
+import io.rebble.libpebblecommon.services.WatchAppDataBackupInfo
 import io.rebble.libpebblecommon.services.WatchInfo
 import io.rebble.libpebblecommon.services.appmessage.AppMessageData
 import io.rebble.libpebblecommon.services.appmessage.AppMessageResult
@@ -117,7 +119,8 @@ sealed interface ConnectedPebbleDevice :
     ConnectedPebble.CompanionAppControl,
     ConnectedPebble.Screenshot,
     ConnectedPebble.Language,
-    ConnectedPebble.Health
+    ConnectedPebble.Health,
+    ConnectedPebble.WatchAppDataBackup
 
 /**
  * Put all specific functionality here, rather than directly in [ConnectedPebbleDevice].
@@ -235,6 +238,12 @@ object ConnectedPebble {
         suspend fun requestHealthData(fullSync: Boolean): Boolean
     }
 
+    interface WatchAppDataBackup {
+        suspend fun getInfo(): WatchAppDataBackupInfo
+        suspend fun export(): WatchAppDataBackupData
+        suspend fun restore(backup: WatchAppDataBackupData)
+    }
+
     class Services(
         val debug: Debug,
         val appRunState: AppRunState,
@@ -251,6 +260,7 @@ object ConnectedPebble {
         val screenshot: Screenshot,
         val language: LanguageInstall,
         val health: Health,
+        val watchAppDataBackup: WatchAppDataBackup,
     )
 
     class PrfServices(

@@ -136,6 +136,7 @@ import io.rebble.libpebblecommon.services.PutBytesService
 import io.rebble.libpebblecommon.services.ScreenshotService
 import io.rebble.libpebblecommon.services.SystemService
 import io.rebble.libpebblecommon.services.VoiceService
+import io.rebble.libpebblecommon.services.WatchAppDataBackupService
 import io.rebble.libpebblecommon.services.app.AppRunStateService
 import io.rebble.libpebblecommon.services.appmessage.AppMessageService
 import io.rebble.libpebblecommon.services.blobdb.BlobDBService
@@ -293,6 +294,7 @@ val CommonPhoneCapabilities = setOf(
     ProtocolCapsFlag.SupportsAppDictation,
     ProtocolCapsFlag.Supports8kAppMessage,
     ProtocolCapsFlag.SupportsSettingsSync,
+    ProtocolCapsFlag.SupportsWatchAppDataBackup,
 //    ProtocolCapsFlag.SupportsHealthInsights,
 //    ProtocolCapsFlag.SupportsUnreadCoreDump,
     ProtocolCapsFlag.SupportsWeatherApp,
@@ -500,7 +502,7 @@ fun initKoin(
                             get(), get(), get(),
                             get(), get(), get(),
                             get(), get(), get(),
-                            get(), get(), get(), get(), get(),
+                            get(), get(), get(), get(), get(), get(),
                             get(),
                         )
                     } bind PebbleConnector::class
@@ -539,6 +541,7 @@ fun initKoin(
                     scopedOf(::AudioStreamService)
                     scopedOf(::AppReorderService)
                     scopedOf(::HealthService)
+                    scopedOf(::WatchAppDataBackupService)
 
                     // Endpoint Managers
                     scopedOf(::PutBytesSession)
