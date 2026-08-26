@@ -35,6 +35,7 @@ import io.rebble.libpebblecommon.services.MusicService
 import io.rebble.libpebblecommon.services.PutBytesService
 import io.rebble.libpebblecommon.services.ScreenshotService
 import io.rebble.libpebblecommon.services.SystemService
+import io.rebble.libpebblecommon.services.WatchAppDataBackupService
 import io.rebble.libpebblecommon.services.WatchInfo
 import io.rebble.libpebblecommon.services.app.AppRunStateService
 import io.rebble.libpebblecommon.services.appmessage.AppMessageService
@@ -164,6 +165,7 @@ class RealPebbleConnector(
     private val appOrderManager: AppOrderManager,
     private val languagePackInstaller: RealLanguagePackInstaller,
     private val healthService: HealthService,
+    private val watchAppDataBackupService: WatchAppDataBackupService,
     private val notificationImageProvider: NotificationImageProvider,
 ) : PebbleConnector {
     private val logger = Logger.withTag("PebbleConnector-$identifier")
@@ -236,6 +238,9 @@ class RealPebbleConnector(
         )
         firmwareUpdateManager.init(watchInfo)
         logDumpService.init(watchInfo.capabilities.contains(ProtocolCapsFlag.SupportsInfiniteLogDump))
+        watchAppDataBackupService.init(
+            watchInfo.capabilities.contains(ProtocolCapsFlag.SupportsWatchAppDataBackup),
+        )
 
         val ignoreMissingPrfOnThisDevice =
             watchConfig.value.ignoreMissingPrf || !identifier.canHaveRecoveryFirmware()
@@ -309,6 +314,7 @@ class RealPebbleConnector(
                 screenshot = screenshotService,
                 language = languagePackInstaller,
                 health = healthService,
+                watchAppDataBackup = watchAppDataBackupService,
             ),
             reversePpogVersion = reversePpogVersion,
         )
