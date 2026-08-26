@@ -428,6 +428,7 @@ fun initKoin(
                         get(),
                         get(),
                         get(),
+                        get(),
                     )
                 } bind LibPebble::class
                 single { RealConnectionScopeFactory(koin) } bind ConnectionScopeFactory::class
