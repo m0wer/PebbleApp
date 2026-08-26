@@ -121,6 +121,7 @@ import coredevices.pebble.PebbleFeatures
 import coredevices.pebble.Platform
 import coredevices.pebble.account.BootConfigProvider
 import coredevices.pebble.account.PebbleAccount
+import coredevices.pebble.backup.AppSettingsBackupRepository
 import coredevices.pebble.backup.HealthBatteryBackupDocumentReader
 import coredevices.pebble.backup.WatchSettingsBackupRepository
 import coredevices.pebble.health.HealthSyncTracker
@@ -304,6 +305,7 @@ fun settingsBadgeTotal(): Int {
 }
 
 private val logger = Logger.withTag("WatchSettingsScreen")
+private const val APP_SETTINGS_BACKUP_FILENAME = "pebble-app-settings-backup-v1.json"
 private const val WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY = "exports"
 private const val WATCH_SETTINGS_BACKUP_FILENAME = "pebble-watch-settings-backup-v1.json"
 
@@ -360,7 +362,9 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
         .collectAsState(Firebase.auth.currentUser?.emailOrNull)
     val scope = rememberCoroutineScope()
     val watchSettingsBackupRepository = koinInject<WatchSettingsBackupRepository>()
+    val appSettingsBackupRepository = koinInject<AppSettingsBackupRepository>()
     val shareLauncher = koinInject<PlatformShareLauncher>()
+    var appSettingsBackupBusy by remember { mutableStateOf(false) }
     var watchSettingsBackupBusy by remember { mutableStateOf(false) }
     var openAIApiKey by remember { mutableStateOf("") }
     LaunchedEffect(integrationTokenStorage) {
@@ -542,6 +546,31 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val healthSyncTracker: HealthSyncTracker = koinInject()
     val healthPlatformSyncEnabled by healthSyncTracker.enabled.collectAsState()
     val healthIsSyncing by platformHealthSync.syncing.collectAsState()
+    val launchAppSettingsBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
+        documents?.firstOrNull()?.let { document ->
+            scope.launch {
+                appSettingsBackupBusy = true
+                try {
+                    val backup = withContext(Dispatchers.Default) {
+                        document.source.use(HealthBatteryBackupDocumentReader::readUtf8)
+                    }
+                    appSettingsBackupRepository.importBackup(backup)
+                    debugOptionsEnabled = settings.showDebugOptions()
+                    enableMemfault.value = settings.getBoolean(KEY_ENABLE_MEMFAULT_UPLOADS, true)
+                    enableFirebase.value = settings.getBoolean(KEY_ENABLE_FIREBASE_UPLOADS, true)
+                    enableMixpanel.value = settings.getBoolean(KEY_ENABLE_MIXPANEL_UPLOADS, true)
+                    snackbarDisplay.showSnackbar("App settings imported.")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.e(e) { "Failed to import app settings backup" }
+                    snackbarDisplay.showSnackbar("App settings import failed. Try again.")
+                } finally {
+                    appSettingsBackupBusy = false
+                }
+            }
+        }
+    }
 
     val rawSettingsItems = remember(
             libPebbleConfig,
@@ -557,9 +586,55 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
             watchPrefs,
             rebbleVoiceAvailable,
             platformSttAvailable,
+            appSettingsBackupBusy,
             watchSettingsBackupBusy,
         ) {
             listOfNotNull(
+                basicSettingsActionItem(
+                    title = "Export App Settings",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Backup,
+                    action = if (appSettingsBackupBusy) null else {
+                        {
+                            scope.launch {
+                                appSettingsBackupBusy = true
+                                try {
+                                    val file = withContext(Dispatchers.Default) {
+                                        val backup = appSettingsBackupRepository.export()
+                                        getTempFilePath(
+                                            appContext,
+                                            APP_SETTINGS_BACKUP_FILENAME,
+                                            WATCH_SETTINGS_BACKUP_CACHE_DIRECTORY,
+                                        ).also {
+                                            SystemFileSystem.sink(it, append = false).buffered().use { sink ->
+                                                sink.writeString(backup)
+                                            }
+                                        }
+                                    }
+                                    shareLauncher.share(null, file, "application/json")
+                                    snackbarDisplay.showSnackbar("App settings backup exported.")
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    logger.e(e) { "Failed to export app settings backup" }
+                                    snackbarDisplay.showSnackbar("App settings export failed. Try again.")
+                                } finally {
+                                    appSettingsBackupBusy = false
+                                }
+                            }
+                        }
+                    },
+                    actionIcon = Icons.Default.FileDownload,
+                ),
+                basicSettingsActionItem(
+                    title = "Import App Settings",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Backup,
+                    action = if (appSettingsBackupBusy) null else {
+                        { launchAppSettingsBackupDocument(listOf("application/json")) }
+                    },
+                    actionIcon = Icons.Default.FileUpload,
+                ),
                 basicSettingsActionItem(
                     title = "Export Watch Settings",
                     topLevelType = TopLevelType.Watch,
