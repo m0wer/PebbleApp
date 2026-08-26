@@ -435,6 +435,13 @@ class Health(
         logger.d { "DEBUG: Populated 30 days of varied fake health data" }
         healthDataProcessor.emitHealthDataUpdated()
     }
+
+    override suspend fun mergeHealthBackupData(
+        healthData: List<HealthDataEntity>,
+        overlays: List<OverlayDataEntity>,
+    ) {
+        healthDao.mergeBackupData(healthData, overlays)
+    }
 }
 
 data class HealthSettings(

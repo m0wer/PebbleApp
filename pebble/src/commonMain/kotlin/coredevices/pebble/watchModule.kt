@@ -15,16 +15,7 @@ import coredevices.pebble.account.RealBootConfigProvider
 import coredevices.pebble.account.RealFirestoreKnownWatchesSync
 import coredevices.pebble.account.RealFirestoreLocker
 import coredevices.pebble.account.RealPebbleAccount
-import coredevices.pebble.backup.AppSettingsBackupDataSource
-import coredevices.pebble.backup.AppSettingsBackupRepository
-import coredevices.pebble.backup.HealthBatteryBackupDataSource
-import coredevices.pebble.backup.HealthBatteryBackupRepository
-import coredevices.pebble.backup.RealAppSettingsBackupDataSource
-import coredevices.pebble.backup.RealHealthBatteryBackupDataSource
-import coredevices.pebble.backup.RealWatchSettingsBackupDataSource
-import coredevices.pebble.backup.WatchAppDataBackupRepository
-import coredevices.pebble.backup.WatchSettingsBackupDataSource
-import coredevices.pebble.backup.WatchSettingsBackupRepository
+import coredevices.pebble.backup.backupModule
 import coredevices.pebble.firmware.BatteryChargedNotifier
 import coredevices.pebble.firmware.Cohorts
 import coredevices.pebble.firmware.FirmwareUpdateCheck
@@ -133,7 +124,7 @@ val watchModule = module {
         )
     } binds arrayOf(LibPebble3::class, NotificationApps::class, SystemGeolocation::class)
 
-    includes(platformWatchModule)
+    includes(platformWatchModule, backupModule)
 
     single { object : PebbleAccountProvider {
         override fun get(): PebbleAccount {
@@ -282,14 +273,6 @@ val watchModule = module {
     viewModelOf(::ModelManagementScreenViewModel)
     viewModelOf(::HealthViewModel)
     singleOf(::HealthDataExporter)
-    singleOf(::RealHealthBatteryBackupDataSource) bind HealthBatteryBackupDataSource::class
-    singleOf(::HealthBatteryBackupRepository)
-    singleOf(::RealWatchSettingsBackupDataSource) bind WatchSettingsBackupDataSource::class
-    singleOf(::WatchSettingsBackupRepository)
-    singleOf(::RealAppSettingsBackupDataSource) bind AppSettingsBackupDataSource::class
-    singleOf(::AppSettingsBackupRepository)
-    singleOf(::WatchAppDataBackupRepository)
-
     single { SearchClient(appId = "7683OW76EQ", apiKey = "252f4938082b8693a8a9fc0157d1d24f") }
 }
 
