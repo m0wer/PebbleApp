@@ -1,12 +1,8 @@
 package coredevices.pebble.backup
 
 import io.rebble.libpebblecommon.connection.LibPebble
+import io.rebble.libpebblecommon.connection.WatchSettingsBackupSnapshot
 import io.rebble.libpebblecommon.database.asMillisecond
-import io.rebble.libpebblecommon.database.dao.WatchSettingsBackupDao
-import io.rebble.libpebblecommon.database.entity.AppPrefsEntry
-import io.rebble.libpebblecommon.database.entity.WeatherPrefsValue
-import io.rebble.libpebblecommon.database.entity.WeatherPrefsValue.Companion.encodeToString
-import io.rebble.libpebblecommon.database.entity.WatchPref
 import kotlin.time.Clock
 
 interface WatchSettingsBackupDataSource {
@@ -37,18 +33,17 @@ class WatchSettingsBackupRepository(
 
 class RealWatchSettingsBackupDataSource(
     private val libPebble: LibPebble,
-    private val backupDao: WatchSettingsBackupDao,
     private val clock: Clock,
 ) : WatchSettingsBackupDataSource {
     override suspend fun read(): WatchSettingsBackupExportData {
-        val weatherApp = backupDao.getAppPrefsEntry(WatchSettingsBackupDao.WEATHER_APP_ID)
+        val snapshot = libPebble.getWatchSettingsBackupSnapshot()
         return WatchSettingsBackupExportData(
             knownWatches = libPebble.getKnownWatches().map {
                 HealthBatteryBackupWatch(it.name, it.serial, it.runningFwVersion)
             },
-            watchPrefs = backupDao.getWatchPrefs(WatchPref.enumeratePrefs().map { it.id }),
-            healthSettings = backupDao.getHealthSettings(WatchSettingsBackupDao.HEALTH_SETTINGS_IDS),
-            weatherLocationUuids = weatherApp?.let { WeatherPrefsValue.fromString(it.value)?.locationUuids },
+            watchPrefs = snapshot.watchPrefs,
+            healthSettings = snapshot.healthSettings,
+            weatherLocationUuids = snapshot.weatherLocationUuids,
         )
     }
 
@@ -56,10 +51,9 @@ class RealWatchSettingsBackupDataSource(
         val now = clock.now().asMillisecond()
         val healthSettings = data.healthSettings.map { it.copy(timestamp = now) }
         val watchPrefs = data.watchPrefs.map { it.copy(timestamp = now) }
-        val weatherApp = data.weatherLocationUuids?.let {
-            AppPrefsEntry(WatchSettingsBackupDao.WEATHER_APP_ID, WeatherPrefsValue(it).encodeToString())
-        }
-        backupDao.replaceSettings(watchPrefs, healthSettings, weatherApp)
+        libPebble.replaceWatchSettingsBackup(
+            WatchSettingsBackupSnapshot(watchPrefs, healthSettings, data.weatherLocationUuids)
+        )
         return WatchSettingsBackupImportCounts(
             watchPrefs = watchPrefs.size,
             healthSettings = healthSettings.size,
