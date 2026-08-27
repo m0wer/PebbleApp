@@ -166,3 +166,31 @@ actual fun rememberOpenPhotoLauncher(onResult: (List<DocumentAttachment>?) -> Un
         presentationController.presentViewController(imagePickerController, animated = true, completion = null)
     }
 }
+
+@Composable
+actual fun rememberSaveDocumentLauncher(onResult: (SaveDocumentResult) -> Unit): (SaveDocumentRequest) -> Unit {
+    val presentationController = LocalUIViewController.current
+    val currentOnResult by rememberUpdatedState(onResult)
+    val delegate = remember {
+        object : NSObject(), UIDocumentPickerDelegateProtocol {
+            override fun documentPicker(
+                controller: UIDocumentPickerViewController,
+                didPickDocumentsAtURLs: List<*>,
+            ) {
+                currentOnResult(SaveDocumentResult.Saved)
+            }
+
+            override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
+                currentOnResult(SaveDocumentResult.Canceled)
+            }
+        }
+    }
+    return { request ->
+        val pickerController = UIDocumentPickerViewController(
+            forExportingURLs = listOf(request.sourcePath.toNSURL()),
+            asCopy = true,
+        )
+        pickerController.delegate = delegate
+        presentationController.presentViewController(pickerController, animated = true, completion = null)
+    }
+}

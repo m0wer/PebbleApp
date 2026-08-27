@@ -9,14 +9,17 @@ import androidx.lifecycle.viewModelScope
 import io.rebble.libpebblecommon.connection.KnownPebbleDevice
 import io.rebble.libpebblecommon.connection.LibPebble
 import io.rebble.libpebblecommon.database.dao.DailyMovementAggregate
+import io.rebble.libpebblecommon.health.HealthConstants
 import io.rebble.libpebblecommon.health.HealthTimeRange
 import io.rebble.libpebblecommon.health.OverlayType
+import io.rebble.libpebblecommon.health.calculateSleepSearchWindow
 import io.rebble.libpebblecommon.metadata.supportsHrm
 import coredevices.pebble.health.HealthDataExporter
 import coredevices.pebble.backup.HealthBatteryBackupImportCounts
 import coredevices.pebble.backup.HealthBatteryBackupRepository
 
 import io.rebble.libpebblecommon.services.DailySleep
+import io.rebble.libpebblecommon.services.SleepInterval
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +68,7 @@ data class StackedSleepEntry(
     val label: String,
     val totalHours: Float,
     val deepHours: Float,
+    val estimatedInBedHours: Float,
 )
 
 data class SleepUiState(
@@ -72,6 +76,7 @@ data class SleepUiState(
     val stackedData: List<StackedSleepEntry> = emptyList(),
     val totalSleepHours: Float = 0f,
     val deepSleepHours: Float = 0f,
+    val estimatedInBedHours: Float = 0f,
     val avgDeepSleepMins: Long = 0,
     val avgFallAsleep: String = "",
     val avgWakeUp: String = "",
@@ -180,7 +185,9 @@ class HealthViewModel(
     }
 
     private suspend fun loadDaily(dayStart: Long, dayEnd: Long, targetDate: LocalDate, tz: TimeZone) = coroutineScope {
+        val (sleepWindowStart, sleepWindowEnd) = calculateSleepSearchWindow(dayStart)
         val healthDataD = async { libPebble.getHealthDataForRange(dayStart, dayEnd) }
+        val sleepIntentD = async { libPebble.getHealthDataForRange(sleepWindowStart, sleepWindowEnd) }
         val aggregatesD = async { libPebble.getTotalHealthData(dayStart, dayEnd) }
         val sleepSessionD = async { libPebble.getDailySleepSession(dayStart) }
         val typicalStepsD = async { libPebble.getTypicalSteps(targetDate.dayOfWeek.ordinal) }
@@ -192,6 +199,7 @@ class HealthViewModel(
         val restingHRD = async { libPebble.getRestingHeartRate(dayStart) }
 
         val healthData = healthDataD.await()
+        val sleepIntentData = sleepIntentD.await()
         val aggregates = aggregatesD.await()
         val sleepSession = sleepSessionD.await()
         val typicalSteps = typicalStepsD.await()
@@ -233,11 +241,16 @@ class HealthViewModel(
         val segments = buildDailySleepSegments(dayStart, sleepSession)
         val bedtimeStr = sleepSession?.let { formatTimeOfDay(it.firstStart, tz) } ?: ""
         val wakeStr = sleepSession?.let { formatTimeOfDay(it.lastEnd, tz) } ?: ""
+        val estimatedInBedSeconds = estimateTimeInBedSeconds(
+            sleepIntentData.filter { it.sleepIntentHint != 0 }.map { it.timestamp },
+            sleepSession?.intervals ?: emptyList(),
+        )
 
         _sleep.value = SleepUiState(
             segments = segments,
             totalSleepHours = (sleepSession?.totalSleep ?: 0L) / 3600f,
             deepSleepHours = (sleepSession?.deepSleep ?: 0L) / 3600f,
+            estimatedInBedHours = estimatedInBedSeconds / 3600f,
             avgFallAsleep = bedtimeStr,
             avgWakeUp = wakeStr,
             avgDeepSleepMins = (sleepSession?.deepSleep ?: 0L) / 60,
@@ -307,7 +320,18 @@ class HealthViewModel(
         }
 
         // For sleep we still need per-day data
-        loadAggregatedMonthly(weeklySteps, labels, startEpoch, endEpoch, tz, weeks)
+        val sleepWindowStart = calculateSleepSearchWindow(startEpoch).first
+        val sleepWindowEnd = calculateSleepSearchWindow(monthEnd.atStartOfDayIn(tz).epochSeconds).second
+        loadAggregatedMonthly(
+            weeklySteps,
+            labels,
+            startEpoch,
+            endEpoch,
+            tz,
+            weeks,
+            sleepWindowStart,
+            sleepWindowEnd,
+        )
     }
 
     private suspend fun buildActivityState(
@@ -346,6 +370,7 @@ class HealthViewModel(
     private suspend fun buildSleepState(
         stackedData: List<StackedSleepEntry>, daysWithData: Int,
         sleepEntries: List<io.rebble.libpebblecommon.database.entity.OverlayDataEntity>, tz: TimeZone,
+        totalEstimatedInBedSeconds: Long,
     ): SleepUiState {
         val totalSleep = sleepEntries.filter {
             val t = OverlayType.fromValue(it.type)
@@ -370,6 +395,7 @@ class HealthViewModel(
             stackedData = stackedData,
             totalSleepHours = totalSleep / 3600f / daysWithData,
             deepSleepHours = totalDeep / 3600f / daysWithData,
+            estimatedInBedHours = totalEstimatedInBedSeconds / 3600f / daysWithData,
             avgDeepSleepMins = totalDeep / 60 / daysWithData,
             avgFallAsleep = avgFallAsleep,
             avgWakeUp = avgWakeUp,
@@ -387,10 +413,21 @@ class HealthViewModel(
         val daysWithData = ordered.count { it != null }.coerceAtLeast(1)
         _activity.value = buildActivityState(ordered.map { it?.steps ?: 0L }, labels, daysWithData, start, end)
 
-        val sleepEntries = libPebble.getSleepEntries(start, end)
+        val sleepWindowStart = calculateSleepSearchWindow(dayStarts.first()).first
+        val sleepWindowEnd = calculateSleepSearchWindow(dayStarts.last()).second
+        val sleepEntries = libPebble.getSleepEntries(sleepWindowStart, sleepWindowEnd)
+        val sleepIntentTimestampsByDay = libPebble.getHealthDataForRange(sleepWindowStart, sleepWindowEnd)
+            .filter { it.sleepIntentHint != 0 }
+            .groupBy({ sleepDayKey(it.timestamp, tz) }, { it.timestamp })
         // Bucket sleep by "sleep day" not calendar date: an entry starting 11 PM Sat belongs to Sun
         // (matches the [6 PM yesterday, 2 PM today] window used for the daily card).
-        val entriesByDay = sleepEntries.groupBy { Instant.fromEpochSeconds(it.startTime + 6 * 3600L).toLocalDateTime(tz).date.toString() }
+        val entriesByDay = sleepEntries.groupBy { sleepDayKey(it.startTime, tz) }
+        val estimatedInBedByDay = ordered.map { agg ->
+            if (agg == null) 0L else estimateTimeInBedSeconds(
+                sleepIntentTimestampsByDay[agg.day] ?: emptyList(),
+                containerSleepIntervals(entriesByDay[agg.day] ?: emptyList()),
+            )
+        }
         val stackedSleep = ordered.mapIndexed { i, agg ->
             val de = if (agg != null) entriesByDay[agg.day] ?: emptyList() else emptyList()
             StackedSleepEntry(
@@ -403,9 +440,16 @@ class HealthViewModel(
                     val t = OverlayType.fromValue(it.type)
                     t == OverlayType.DeepSleep || t == OverlayType.DeepNap
                 }.sumOf { it.duration } / 3600f,
+                estimatedInBedHours = estimatedInBedByDay[i] / 3600f,
             )
         }
-        _sleep.value = buildSleepState(stackedSleep, daysWithData, sleepEntries, tz)
+        _sleep.value = buildSleepState(
+            stackedSleep,
+            daysWithData,
+            sleepEntries,
+            tz,
+            estimatedInBedByDay.sum(),
+        )
         _heartRate.value = buildHeartRateState(start, end, dayStarts, dayLabels)
     }
 
@@ -413,16 +457,28 @@ class HealthViewModel(
         weeklySteps: List<Long>, labels: List<String>,
         start: Long, end: Long, tz: TimeZone,
         weeks: List<Pair<String, List<DailyMovementAggregate?>>>,
+        sleepWindowStart: Long,
+        sleepWindowEnd: Long,
     ) {
         val daysWithData = weeks.flatMap { it.second }.count { it != null }.coerceAtLeast(1)
         _activity.value = buildActivityState(weeklySteps, labels, daysWithData, start, end)
 
-        val sleepEntries = libPebble.getSleepEntries(start, end)
-        val entriesByDay = sleepEntries.groupBy { Instant.fromEpochSeconds(it.startTime + 6 * 3600L).toLocalDateTime(tz).date.toString() }
+        val sleepEntries = libPebble.getSleepEntries(sleepWindowStart, sleepWindowEnd)
+        val sleepIntentTimestampsByDay = libPebble.getHealthDataForRange(sleepWindowStart, sleepWindowEnd)
+            .filter { it.sleepIntentHint != 0 }
+            .groupBy({ sleepDayKey(it.timestamp, tz) }, { it.timestamp })
+        val entriesByDay = sleepEntries.groupBy { sleepDayKey(it.startTime, tz) }
+        val estimatedInBedByDay = weeks.flatMap { it.second }.filterNotNull().associate { day ->
+            day.day to estimateTimeInBedSeconds(
+                sleepIntentTimestampsByDay[day.day] ?: emptyList(),
+                containerSleepIntervals(entriesByDay[day.day] ?: emptyList()),
+            )
+        }
         val stackedSleep = weeks.map { (label, days) ->
-            var total = 0f; var deep = 0f
+            var total = 0f; var deep = 0f; var estimatedInBed = 0L
             for (d in days) {
                 if (d == null) continue
+                estimatedInBed += estimatedInBedByDay[d.day] ?: 0L
                 val de = entriesByDay[d.day] ?: continue
                 total += de.filter {
                     val t = OverlayType.fromValue(it.type)
@@ -434,12 +490,84 @@ class HealthViewModel(
                 }.sumOf { it.duration } / 3600f
             }
             val count = days.count { it != null }.coerceAtLeast(1)
-            StackedSleepEntry(label, total / count, deep / count)
+            StackedSleepEntry(label, total / count, deep / count, estimatedInBed / 3600f / count)
         }
-        _sleep.value = buildSleepState(stackedSleep, daysWithData, sleepEntries, tz)
+        _sleep.value = buildSleepState(
+            stackedSleep,
+            daysWithData,
+            sleepEntries,
+            tz,
+            estimatedInBedByDay.values.sum(),
+        )
         _heartRate.value = buildHeartRateState(start, end)
     }
 
+}
+
+private const val MAX_SLEEP_INTENT_GAP_SECONDS = 30 * 60L
+private const val MIN_ESTIMATED_IN_BED_SECONDS = 10 * 60L
+private const val HEALTH_MINUTE_SECONDS = 60L
+
+internal fun estimateTimeInBedSeconds(
+    intentTimestamps: List<Long>,
+    sleepIntervals: List<SleepInterval>,
+): Long {
+    var longestIntentCluster = 0L
+    val sortedTimestamps = intentTimestamps.sorted()
+    if (sortedTimestamps.isNotEmpty()) {
+        var clusterStart = sortedTimestamps.first()
+        var previousTimestamp = clusterStart
+
+        fun completeCluster() {
+            val duration = previousTimestamp - clusterStart + HEALTH_MINUTE_SECONDS
+            if (duration > longestIntentCluster) longestIntentCluster = duration
+        }
+
+        for (timestamp in sortedTimestamps.drop(1)) {
+            if (timestamp - previousTimestamp > MAX_SLEEP_INTENT_GAP_SECONDS) {
+                completeCluster()
+                clusterStart = timestamp
+            }
+            previousTimestamp = timestamp
+        }
+        completeCluster()
+    }
+
+    if (longestIntentCluster >= MIN_ESTIMATED_IN_BED_SECONDS) return longestIntentCluster
+
+    val containers = sleepIntervals.filter { !it.isDeep && it.end > it.start }.sortedBy { it.start }
+    if (containers.isEmpty()) return 0L
+
+    var longestContainerSpan = 0L
+    var clusterStart = containers.first().start
+    var clusterEnd = containers.first().end
+    for (container in containers.drop(1)) {
+        if (container.start <= clusterEnd + HealthConstants.SLEEP_SESSION_GAP_HOURS * 3600L) {
+            clusterEnd = maxOf(clusterEnd, container.end)
+        } else {
+            longestContainerSpan = maxOf(longestContainerSpan, clusterEnd - clusterStart)
+            clusterStart = container.start
+            clusterEnd = container.end
+        }
+    }
+    return maxOf(longestContainerSpan, clusterEnd - clusterStart)
+}
+
+private fun containerSleepIntervals(
+    sleepEntries: List<io.rebble.libpebblecommon.database.entity.OverlayDataEntity>,
+): List<SleepInterval> = sleepEntries.mapNotNull { entry ->
+    val type = OverlayType.fromValue(entry.type)
+    if (type == OverlayType.Sleep || type == OverlayType.Nap) {
+        SleepInterval(entry.startTime, entry.startTime + entry.duration, isDeep = false)
+    } else {
+        null
+    }
+}
+
+private fun sleepDayKey(timestamp: Long, tz: TimeZone): String {
+    val local = Instant.fromEpochSeconds(timestamp).toLocalDateTime(tz)
+    val sleepDate = if (local.hour >= 18) local.date.plus(DatePeriod(days = 1)) else local.date
+    return sleepDate.toString()
 }
 
 internal fun buildDailySleepSegments(dayStart: Long, dailySleep: DailySleep?): List<SleepSegmentUi> {
