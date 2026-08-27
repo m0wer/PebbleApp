@@ -1,6 +1,7 @@
 package coredevices.pebble.ui
 
-import PlatformShareLauncher
+import SaveDocumentRequest
+import SaveDocumentResult
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,18 +45,24 @@ import kotlinx.io.buffered
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.writeString
 import org.koin.compose.koinInject
+import rememberSaveDocumentLauncher
 
 private val batteryExportLogger = Logger.withTag("BatteryExport")
 
 @Composable
 fun BatterySettingsScreen(navBarNav: NavBarNav, topBarParams: TopBarParams) {
     val repository = koinInject<BatteryHistoryRepository>()
-    val shareLauncher = koinInject<PlatformShareLauncher>()
     val appContext = koinInject<AppContext>()
     val history by repository.observeRecent().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
     var exportError by remember { mutableStateOf<String?>(null) }
     var isExporting by remember { mutableStateOf(false) }
+    val saveDocument = rememberSaveDocumentLauncher { result ->
+        if (result == SaveDocumentResult.Failed) {
+            exportError = "Battery export failed. Try again."
+        }
+        isExporting = false
+    }
 
     LaunchedEffect(history.isNotEmpty(), isExporting) {
         topBarParams.searchAvailable(null)
@@ -78,20 +85,25 @@ fun BatterySettingsScreen(navBarNav: NavBarNav, topBarParams: TopBarParams) {
                                     }
                                 }
                             }
-                            shareLauncher.share("Pebble battery history", csvPath, mimeType = "text/csv")
+                            saveDocument(
+                                SaveDocumentRequest(
+                                    sourcePath = csvPath,
+                                    suggestedFileName = "pebble-battery-history.csv",
+                                    mimeType = "text/csv",
+                                )
+                            )
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             batteryExportLogger.e(e) { "Failed to export battery history" }
                             exportError = "Battery export failed. Try again."
-                        } finally {
                             isExporting = false
                         }
                     }
                 },
                 enabled = history.isNotEmpty() && !isExporting,
             ) {
-                Icon(Icons.Default.Share, contentDescription = "Export battery history")
+                Icon(Icons.Default.FileDownload, contentDescription = "Export battery history")
             }
         }
     }
