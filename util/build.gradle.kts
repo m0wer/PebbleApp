@@ -212,6 +212,11 @@ buildkonfig {
             "PEBBLEOS_GITHUB_REPOSITORY",
             gradleStringPropOrNull("pebbleOsGithubRepository") ?: "m0wer/PebbleOS",
         )
+        buildConfigField(
+            FieldSpec.Type.STRING,
+            "PEBBLEAPP_GITHUB_REPOSITORY",
+            gradleStringPropOrNull("pebbleAppGithubRepository") ?: "m0wer/PebbleApp",
+        )
         buildConfigField(FieldSpec.Type.STRING, "GOOGLE_CLIENT_ID", gradleStringPropOrNull("googleClientId"), nullable = true)
         buildConfigField(FieldSpec.Type.BOOLEAN, "GOOGLE_AUTH_ENABLED", gradleBooleanProp("googleAuthEnabled", default = true).toString())
         buildConfigField(FieldSpec.Type.BOOLEAN, "APPLE_AUTH_ENABLED", gradleBooleanProp("appleAuthEnabled", default = true).toString())

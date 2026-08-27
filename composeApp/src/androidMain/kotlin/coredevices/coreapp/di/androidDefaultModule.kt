@@ -13,6 +13,8 @@ import coredevices.coreapp.auth.RealGithubAuthUtil
 import coredevices.coreapp.auth.RealGoogleAuthUtil
 import coredevices.coreapp.util.AndroidAppUpdate
 import coredevices.coreapp.util.AppUpdate
+import coredevices.coreapp.util.GithubApkDownloadManager
+import coredevices.coreapp.util.GithubAppUpdateChecker
 import coredevices.pebble.PebbleAndroidDelegate
 import coredevices.ring.RingDelegate
 import coredevices.util.AndroidCompanionDevice
@@ -35,10 +37,12 @@ import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.parameter.parametersOf
 import org.koin.dsl.bind
 import org.koin.dsl.binds
 import org.koin.dsl.module
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
 val androidDefaultModule = module {
@@ -57,6 +61,8 @@ val androidDefaultModule = module {
     singleOf(::AndroidOAuthLauncher) bind OAuthLauncher::class
     single { CoreAppVersion(get<Context>().appVersionName) }
     factory { AppUpdateManagerFactory.create(get()) }
+    single { GithubAppUpdateChecker(get<HttpClientEngine> { parametersOf(30.seconds) }) }
+    singleOf(::GithubApkDownloadManager)
     singleOf(::PlatformContext)
     singleOf(::AndroidPermissionRequester) bind PermissionRequester::class
     singleOf(::AndroidCompanionDevice) bind CompanionDevice::class
