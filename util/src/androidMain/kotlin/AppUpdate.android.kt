@@ -1,5 +1,6 @@
 package coredevices.coreapp.util
 
+import CoreAppVersion
 import PlatformUiContext
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -22,9 +23,10 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
@@ -32,48 +34,28 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
 actual data class AppUpdatePlatformContent(
-    val androidUpdate: AppUpdateInfo
+    val androidUpdate: AppUpdateInfo? = null,
+    val githubRelease: GithubApkRelease? = null,
 )
 
 class AndroidAppUpdate(
     private val appUpdateManager: AppUpdateManager,
     private val settings: Settings,
     private val context: Context,
+    private val githubAppUpdateChecker: GithubAppUpdateChecker,
+    private val githubApkDownloadManager: GithubApkDownloadManager,
+    private val appVersion: CoreAppVersion,
 ) : AppUpdate {
     private val logger = Logger.withTag("AndroidAppUpdate")
 
-    override val updateAvailable: StateFlow<AppUpdateState> = appUpdateManager.requestUpdateFlow()
-        .onStart {
-            logger.d { "Checking for app update - installed via ${resolveInstaller()}" }
-            emit(AppUpdateResult.NotAvailable) // Emit a loading state initially
-        }
+    override val updateAvailable: StateFlow<AppUpdateState> = updateFlow()
         .catch { exception ->
-            Logger.w(exception) { "Failed to check for CoreApp updates" }
-            emit(AppUpdateResult.NotAvailable)
-        }
-        .map { result ->
-            when (result) {
-                is AppUpdateResult.Available -> AppUpdateState.UpdateAvailable(
-                    AppUpdatePlatformContent(result.updateInfo)
-                )
-
-                else -> AppUpdateState.NoUpdateAvailable
-            }
+            logger.w(exception) { "Failed to check for Pebble App updates" }
+            emit(AppUpdateState.NoUpdateAvailable)
         }
         .onEach { result ->
-            when (result) {
-                AppUpdateState.NoUpdateAvailable -> Unit
-                is AppUpdateState.UpdateAvailable -> {
-                    val lastPromptedMs = settings.getLong(LAST_PROMPTED_KEY, 0L)
-                    val nowMs = System.currentTimeMillis()
-                    val diff = (nowMs - lastPromptedMs).milliseconds
-                    if (diff > NOTIFICATION_ALLOWED_PERIOD) {
-                        settings.set(LAST_PROMPTED_KEY, nowMs)
-                        createNotification(context)
-                    } else {
-                        Logger.d { "Not notifying for update - only $diff since last prompt" }
-                    }
-                }
+            if (result is AppUpdateState.UpdateAvailable) {
+                maybeCreateUpdateNotification(result.update)
             }
         }
         .stateIn(
@@ -86,16 +68,48 @@ class AndroidAppUpdate(
         )
 
     override fun startUpdateFlow(uiContext: PlatformUiContext, update: AppUpdatePlatformContent) {
-        if (update.androidUpdate.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
-            logger.d { "Starting update flow" }
-            appUpdateManager.startUpdateFlowForResult(
-                update.androidUpdate,
-                AppUpdateType.IMMEDIATE,
-                uiContext.activity,
-                REQUEST_CODE_APP_UPDATE
+        update.androidUpdate?.let { androidUpdate ->
+            if (androidUpdate.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
+                logger.d { "Starting Play update flow" }
+                appUpdateManager.startUpdateFlowForResult(
+                    androidUpdate,
+                    AppUpdateType.IMMEDIATE,
+                    uiContext.activity,
+                    REQUEST_CODE_APP_UPDATE,
+                )
+            } else {
+                logger.d { "Play update type not allowed" }
+            }
+            return
+        }
+
+        update.githubRelease?.let { release ->
+            logger.d { "Starting GitHub APK update download" }
+            githubApkDownloadManager.enqueue(release)
+        }
+    }
+
+    private fun updateFlow() = flow {
+        val installer = resolveInstaller()
+        logger.d { "Checking for app update, installed via $installer" }
+        if (installer == PLAY_STORE_PACKAGE) {
+            emitAll(
+                appUpdateManager.requestUpdateFlow().map { result ->
+                    when (result) {
+                        is AppUpdateResult.Available -> AppUpdateState.UpdateAvailable(
+                            AppUpdatePlatformContent(androidUpdate = result.updateInfo),
+                        )
+
+                        else -> AppUpdateState.NoUpdateAvailable
+                    }
+                }
             )
         } else {
-            logger.d { "Update type not allowed" }
+            val githubRelease = githubAppUpdateChecker.checkForUpdate(appVersion.version)
+            emit(
+                githubRelease?.let { AppUpdateState.UpdateAvailable(AppUpdatePlatformContent(githubRelease = it)) }
+                    ?: AppUpdateState.NoUpdateAvailable
+            )
         }
     }
 
@@ -106,66 +120,68 @@ class AndroidAppUpdate(
             @Suppress("DEPRECATION")
             context.packageManager.getInstallerPackageName(context.packageName)
         }
-    } catch (e: Exception) {
-        logger.w(e) { "Failed to resolve install source" }
+    } catch (exception: Exception) {
+        logger.w(exception) { "Failed to resolve install source" }
         null
     }
 
-    private fun createNotification(context: Context) {
-        val playStoreIntent = getPlayStoreMarketIntent(context, context.packageName)
-        if (playStoreIntent == null) {
-            logger.w { "Failed to create play store intent for notification" }
+    private fun maybeCreateUpdateNotification(update: AppUpdatePlatformContent) {
+        val lastPromptedMs = settings.getLong(LAST_PROMPTED_KEY, 0L)
+        val nowMs = System.currentTimeMillis()
+        val diff = (nowMs - lastPromptedMs).milliseconds
+        if (diff > NOTIFICATION_ALLOWED_PERIOD) {
+            settings.set(LAST_PROMPTED_KEY, nowMs)
+            createUpdateNotification(update)
+        } else {
+            logger.d { "Not notifying for update, only $diff since last prompt" }
+        }
+    }
+
+    private fun createUpdateNotification(update: AppUpdatePlatformContent) {
+        val intent = when {
+            update.androidUpdate != null -> getPlayStoreMarketIntent(context, context.packageName)
+            update.githubRelease != null -> context.packageManager.getLaunchIntentForPackage(context.packageName)
+            else -> null
+        } ?: run {
+            logger.w { "Failed to create app update notification intent" }
             return
         }
 
-        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-
-        val pendingIntent: PendingIntent = PendingIntent.getActivity(
+        val pendingIntent = PendingIntent.getActivity(
             context,
-            0, // Request code - can be any unique integer
-            playStoreIntent,
-            pendingIntentFlags
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        context.createChannel()
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        context.createUpdateChannel()
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Pebble App Update Available")
-            .setContentText("Please update the Pebble app!")
+            .setContentText("Please update the Pebble app")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-        val manager = context.getSystemService(NotificationManager::class.java)
-        logger.d { "Posting app udate available notification" }
-        manager.notify(NOTIFICATION_ID, builder.build())
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
     }
 
     private fun getPlayStoreMarketIntent(context: Context, packageName: String): Intent? {
-        val marketIntent =
-            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
-                setPackage(PLAY_STORE_PACKAGE)
-            }
-        return if (marketIntent.resolveActivity(context.packageManager) != null) {
-            marketIntent
-        } else {
-            null
+        val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+            setPackage(PLAY_STORE_PACKAGE)
         }
+        return marketIntent.takeIf { it.resolveActivity(context.packageManager) != null }
     }
 
-    private fun Context.createChannel() {
+    private fun Context.createUpdateChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "App Updates",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Pebble App Updates"
+            description = "Pebble App updates"
         }
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     companion object {
