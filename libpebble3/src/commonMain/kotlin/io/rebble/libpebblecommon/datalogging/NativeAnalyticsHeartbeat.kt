@@ -10,6 +10,9 @@ data class NativeAnalyticsHeartbeat(
     val batteryVoltageDeltaMv: Int,
     val batteryTemperatureMc: Int,
     val batteryCurrentUa: Int,
+    val batteryCurrentAvgUa: Int,
+    val batteryCurrentPeakUa: Int,
+    val batteryCurrentSampleCount: Long,
     val batteryTteSeconds: Long,
     val batteryChargeTimeMs: Long,
     val batteryDischargeDurationMs: Long,
@@ -42,7 +45,7 @@ object NativeAnalyticsHeartbeatParser {
 
         fun parse(): NativeAnalyticsHeartbeat {
             val version = u8()
-            require(version == 3 || version == 4)
+            require(version == 3 || version == 4 || version == 5)
             val timestamp = u64()
             skip(20) // BUILD_ID_EXPECTED_LEN
 
@@ -106,7 +109,10 @@ object NativeAnalyticsHeartbeatParser {
             u32() // drv_init_fail_flags
             val socMin = scaledUnsigned()
             u32() // touch_gated_touchdown_count
-            val current = if (version == 4) i32() else 0
+            val current = if (version >= 4) i32() else 0
+            val currentAvg = if (version == 5) i32() else 0
+            val currentPeak = if (version == 5) i32() else 0
+            val currentSampleCount = if (version == 5) u32() else 0L
 
             require(offset == bytes.size)
             return NativeAnalyticsHeartbeat(
@@ -119,6 +125,9 @@ object NativeAnalyticsHeartbeatParser {
                 batteryVoltageDeltaMv = voltageDelta,
                 batteryTemperatureMc = temperature,
                 batteryCurrentUa = current,
+                batteryCurrentAvgUa = currentAvg,
+                batteryCurrentPeakUa = currentPeak,
+                batteryCurrentSampleCount = currentSampleCount,
                 batteryTteSeconds = tte,
                 batteryChargeTimeMs = chargeTime,
                 batteryDischargeDurationMs = dischargeDuration,
