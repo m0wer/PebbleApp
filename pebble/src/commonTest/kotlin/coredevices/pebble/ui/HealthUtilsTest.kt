@@ -151,6 +151,62 @@ class HealthUtilsTest {
     }
 
     @Test
+    fun estimateTimeInBed_regularIntentMinutes() {
+        val timestamps = (0 until 10).map { it * 60L }
+
+        assertEquals(10 * 60L, estimateTimeInBedSeconds(timestamps, emptyList()))
+    }
+
+    @Test
+    fun estimateTimeInBed_bridges14MinuteMissingDataGap() {
+        val timestamps = (0 until 5).map { it * 60L } + (19 until 29).map { it * 60L }
+
+        assertEquals(29 * 60L, estimateTimeInBedSeconds(timestamps, emptyList()))
+    }
+
+    @Test
+    fun estimateTimeInBed_splitsOver30MinuteGapAndUsesLongestCluster() {
+        val timestamps = (0 until 10).map { it * 60L } + (40 until 52).map { it * 60L }
+
+        assertEquals(12 * 60L, estimateTimeInBedSeconds(timestamps, emptyList()))
+    }
+
+    @Test
+    fun estimateTimeInBed_rejectsShortIntentAndFallsBackToContainers() {
+        val timestamps = (0 until 9).map { it * 60L }
+        val containers = listOf(light(1000L, 8200L))
+
+        assertEquals(7200L, estimateTimeInBedSeconds(timestamps, containers))
+    }
+
+    @Test
+    fun estimateTimeInBed_noIntentOrContainersIsZero() {
+        assertEquals(0L, estimateTimeInBedSeconds(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun estimateTimeInBed_fallsBackToContainerSpanOnly() {
+        val intervals = listOf(
+            deep(0L, 4000L),
+            light(100L, 200L),
+            light(500L, 900L),
+            deep(1000L, 2000L),
+        )
+
+        assertEquals(800L, estimateTimeInBedSeconds(emptyList(), intervals))
+    }
+
+    @Test
+    fun estimateTimeInBed_fallbackUsesLongestSleepPeriodInsteadOfLaterNap() {
+        val intervals = listOf(
+            light(0L, 6 * 3600L),
+            light(10 * 3600L, 11 * 3600L),
+        )
+
+        assertEquals(6 * 3600L, estimateTimeInBedSeconds(emptyList(), intervals))
+    }
+
+    @Test
     fun buildDailySleepSegments_nullSession() {
         val result = buildDailySleepSegments(dayStart = 0L, dailySleep = null)
         assertTrue(result.isEmpty())
