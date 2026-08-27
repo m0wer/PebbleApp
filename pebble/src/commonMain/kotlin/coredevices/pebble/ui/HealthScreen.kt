@@ -1,7 +1,8 @@
 package coredevices.pebble.ui
 
-import PlatformShareLauncher
 import DocumentAttachment
+import SaveDocumentRequest
+import SaveDocumentResult
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +62,7 @@ import kotlinx.io.buffered
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.writeString
 import rememberOpenDocumentLauncher
+import rememberSaveDocumentLauncher
 import coredevices.pebble.backup.HealthBatteryBackupDocumentReader
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -78,7 +79,6 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
     val dl by vm.dateLabel.collectAsState()
     val imperial by vm.imperialUnits.collectAsState()
     val hasHrmWatch by vm.hasHrmWatch.collectAsState()
-    val shareLauncher = koinInject<PlatformShareLauncher>()
     val appContext = koinInject<AppContext>()
     val scope = rememberCoroutineScope()
     var exportError by remember { mutableStateOf<String?>(null) }
@@ -87,6 +87,20 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
     var backupError by remember { mutableStateOf<String?>(null) }
     var isExportingBackup by remember { mutableStateOf(false) }
     var isImportingBackup by remember { mutableStateOf(false) }
+    val saveRawData = rememberSaveDocumentLauncher { result ->
+        if (result == SaveDocumentResult.Failed) {
+            exportError = "Health export failed. Try again."
+        }
+        isExporting = false
+    }
+    val saveHealthBackup = rememberSaveDocumentLauncher { result ->
+        when (result) {
+            SaveDocumentResult.Saved -> backupStatus = "Health and battery backup exported."
+            SaveDocumentResult.Failed -> backupError = "Health and battery export failed. Try again."
+            SaveDocumentResult.Canceled -> Unit
+        }
+        isExportingBackup = false
+    }
     val launchBackupDocument = rememberOpenDocumentLauncher { documents: List<DocumentAttachment>? ->
         documents?.firstOrNull()?.let { document ->
             scope.launch {
@@ -162,13 +176,18 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                                     }
                                 }
                             }
-                            shareLauncher.share(null, file, "application/json")
+                            saveRawData(
+                                SaveDocumentRequest(
+                                    sourcePath = file,
+                                    suggestedFileName = "pebble-health-export-v1.json",
+                                    mimeType = "application/json",
+                                )
+                            )
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             healthExportLogger.e(e) { "Failed to export health data" }
                             exportError = "Health export failed. Try again."
-                        } finally {
                             isExporting = false
                         }
                     }
@@ -176,7 +195,7 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 enabled = !isExporting,
             ) {
-                Icon(Icons.Default.Share, null, Modifier.size(16.dp))
+                Icon(Icons.Default.FileDownload, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(if (isExporting) "Exporting..." else "Export Raw Data")
             }
@@ -199,14 +218,18 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                                     }
                                 }
                             }
-                            shareLauncher.share(null, file, "application/json")
-                            backupStatus = "Health and battery backup exported."
+                            saveHealthBackup(
+                                SaveDocumentRequest(
+                                    sourcePath = file,
+                                    suggestedFileName = HEALTH_BATTERY_BACKUP_FILENAME,
+                                    mimeType = "application/json",
+                                )
+                            )
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             healthExportLogger.e(e) { "Failed to export health and battery backup" }
                             backupError = "Health and battery export failed. Try again."
-                        } finally {
                             isExportingBackup = false
                         }
                     }
@@ -413,23 +436,26 @@ private fun SleepCard(st: SleepUiState, range: HealthTimeRange) {
             typicalValue = typicalStr,
         )
         if (st.isLoading) { ChartPlaceholder("Loading...", "") }
-        else if (st.totalSleepHours == 0f) { ChartPlaceholder("No sleep data", "Wear your watch to bed to track sleep") }
+        else if (st.totalSleepHours == 0f && st.estimatedInBedHours == 0f) { ChartPlaceholder("No sleep data", "Wear your watch to bed to track sleep") }
         else {
             when (range) {
                 HealthTimeRange.Daily -> DailySleepTimeline(st.segments, st.totalSleepHours, st.deepSleepHours)
                 else -> { val tm = rememberTextMeasurer(); StackedBarChart(st.stackedData, scrub, tm, typicalLine = st.typicalSleepHours) }
             }
-            SleepStatsRow(st)
+            SleepStatsRow(st, range, scrubEntry)
         }
     }
 }
 
 @Composable
-private fun SleepStatsRow(st: SleepUiState) {
+private fun SleepStatsRow(st: SleepUiState, range: HealthTimeRange, scrubEntry: StackedSleepEntry?) {
+    val estimatedInBed = scrubEntry?.estimatedInBedHours ?: st.estimatedInBedHours
+    val bedtimeLabel = if (range == HealthTimeRange.Daily) "Bedtime" else "Avg bedtime"
+    val wakeLabel = if (range == HealthTimeRange.Daily) "Wake" else "Avg wake"
     Row(Modifier.fillMaxWidth().background(SleepBgColor).padding(horizontal = 16.dp, vertical = 8.dp), Arrangement.SpaceEvenly) {
-        StatItem("Avg Deep", "${st.avgDeepSleepMins}m")
-        if (st.avgFallAsleep.isNotEmpty()) StatItem("Avg Fall Asleep", st.avgFallAsleep)
-        if (st.avgWakeUp.isNotEmpty()) StatItem("Avg Wake Up", st.avgWakeUp)
+        StatItem("Est. in bed", formatHours(estimatedInBed))
+        if (st.avgFallAsleep.isNotEmpty()) StatItem(bedtimeLabel, st.avgFallAsleep)
+        if (st.avgWakeUp.isNotEmpty()) StatItem(wakeLabel, st.avgWakeUp)
     }
 }
 
