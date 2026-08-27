@@ -5,8 +5,9 @@ import CommonRoutes
 import CoreAppVersion
 import DocumentAttachment
 import NextBugReportContext
-import PlatformShareLauncher
 import PlatformUiContext
+import SaveDocumentRequest
+import SaveDocumentResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -192,6 +193,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import rememberOpenDocumentLauncher
+import rememberSaveDocumentLauncher
 import theme.CoreAppTheme
 import theme.ThemeProvider
 import kotlin.math.roundToLong
@@ -373,7 +375,6 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
     val watchSettingsBackupRepository = koinInject<WatchSettingsBackupRepository>()
     val appSettingsBackupRepository = koinInject<AppSettingsBackupRepository>()
     val watchAppDataBackupRepository = koinInject<WatchAppDataBackupRepository>()
-    val shareLauncher = koinInject<PlatformShareLauncher>()
     var appSettingsBackupBusy by remember { mutableStateOf(false) }
     var watchSettingsBackupBusy by remember { mutableStateOf(false) }
     var watchAppDataBackupBusy by remember { mutableStateOf(false) }
@@ -648,6 +649,42 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
             }
         }
     }
+    val saveAppSettingsBackup = rememberSaveDocumentLauncher { result ->
+        appSettingsBackupBusy = false
+        when (result) {
+            SaveDocumentResult.Saved -> scope.launch {
+                snackbarDisplay.showSnackbar("App settings backup exported.")
+            }
+            SaveDocumentResult.Failed -> scope.launch {
+                snackbarDisplay.showSnackbar("App settings export failed. Try again.")
+            }
+            SaveDocumentResult.Canceled -> Unit
+        }
+    }
+    val saveWatchSettingsBackup = rememberSaveDocumentLauncher { result ->
+        watchSettingsBackupBusy = false
+        when (result) {
+            SaveDocumentResult.Saved -> scope.launch {
+                snackbarDisplay.showSnackbar("Watch settings backup exported.")
+            }
+            SaveDocumentResult.Failed -> scope.launch {
+                snackbarDisplay.showSnackbar("Watch settings export failed. Try again.")
+            }
+            SaveDocumentResult.Canceled -> Unit
+        }
+    }
+    val saveWatchAppDataBackup = rememberSaveDocumentLauncher { result ->
+        watchAppDataBackupBusy = false
+        when (result) {
+            SaveDocumentResult.Saved -> scope.launch {
+                snackbarDisplay.showSnackbar("Watch app data backup exported.")
+            }
+            SaveDocumentResult.Failed -> scope.launch {
+                snackbarDisplay.showSnackbar("Watch app data export failed. Try again.")
+            }
+            SaveDocumentResult.Canceled -> Unit
+        }
+    }
 
     val rawSettingsItems = remember(
             libPebbleConfig,
@@ -690,14 +727,19 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                                             }
                                         }
                                     }
-                                    shareLauncher.share(null, file, "application/json")
-                                    snackbarDisplay.showSnackbar("App settings backup exported.")
+                                    saveAppSettingsBackup(
+                                        SaveDocumentRequest(
+                                            sourcePath = file,
+                                            suggestedFileName = APP_SETTINGS_BACKUP_FILENAME,
+                                            mimeType = "application/json",
+                                        )
+                                    )
                                 } catch (e: CancellationException) {
+                                    appSettingsBackupBusy = false
                                     throw e
                                 } catch (e: Exception) {
                                     logger.e(e) { "Failed to export app settings backup" }
                                     snackbarDisplay.showSnackbar("App settings export failed. Try again.")
-                                } finally {
                                     appSettingsBackupBusy = false
                                 }
                             }
@@ -735,14 +777,19 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                                             }
                                         }
                                     }
-                                    shareLauncher.share(null, file, "application/json")
-                                    snackbarDisplay.showSnackbar("Watch settings backup exported.")
+                                    saveWatchSettingsBackup(
+                                        SaveDocumentRequest(
+                                            sourcePath = file,
+                                            suggestedFileName = WATCH_SETTINGS_BACKUP_FILENAME,
+                                            mimeType = "application/json",
+                                        )
+                                    )
                                 } catch (e: CancellationException) {
+                                    watchSettingsBackupBusy = false
                                     throw e
                                 } catch (e: Exception) {
                                     logger.e(e) { "Failed to export watch settings backup" }
                                     snackbarDisplay.showSnackbar("Watch settings export failed. Try again.")
-                                } finally {
                                     watchSettingsBackupBusy = false
                                 }
                             }
@@ -763,9 +810,9 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     title = "Export Watch App Data",
                     topLevelType = TopLevelType.Watch,
                     section = Section.Backup,
-                    action = if (watchAppDataBackupBusy || watchAppDataBackupTarget == null) null else {
+                    action = if (watchAppDataBackupTarget == null) null else {
                         {
-                            scope.launch {
+                            if (!watchAppDataBackupBusy) scope.launch {
                                 watchAppDataBackupBusy = true
                                 try {
                                     val backup = watchAppDataBackupRepository.export(watchAppDataBackupTarget)
@@ -780,20 +827,27 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                                             }
                                         }
                                     }
-                                    shareLauncher.share(null, file, "application/json")
-                                    snackbarDisplay.showSnackbar("Watch app data backup exported.")
+                                    saveWatchAppDataBackup(
+                                        SaveDocumentRequest(
+                                            sourcePath = file,
+                                            suggestedFileName = WATCH_APP_DATA_BACKUP_FILENAME,
+                                            mimeType = "application/json",
+                                        )
+                                    )
                                 } catch (e: CancellationException) {
+                                    watchAppDataBackupBusy = false
                                     throw e
                                 } catch (e: Exception) {
                                     logger.e(e) { "Failed to export watch app data backup" }
                                     snackbarDisplay.showSnackbar("Watch app data export failed. Try again.")
-                                } finally {
                                     watchAppDataBackupBusy = false
                                 }
                             }
                         }
                     },
                     actionIcon = Icons.Default.FileDownload,
+                    actionEnabled = !watchAppDataBackupBusy,
+                    description = if (watchAppDataBackupBusy) "Approve the export on your watch." else null,
                     show = { watchAppDataBackupTarget != null },
                 ),
                 basicSettingsActionItem(
@@ -2776,7 +2830,8 @@ fun basicSettingsActionItem(
     show: () -> Boolean = { true },
     badge: String? = null,
     isDebugSetting: Boolean = false,
-    onDisplayed: (@Composable () -> Unit)? = null
+    onDisplayed: (@Composable () -> Unit)? = null,
+    actionEnabled: Boolean = true,
 ) = SettingsItem(
     title = title,
     topLevelType = topLevelType,
@@ -2819,7 +2874,7 @@ fun basicSettingsActionItem(
             shadowElevation = ELEVATION,
             modifier = Modifier.run() {
                 if (action != null) {
-                    clickable { action() }
+                    clickable(enabled = actionEnabled) { action() }
                 } else this
             },
         )
