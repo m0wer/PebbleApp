@@ -51,6 +51,8 @@ existing release without uninstalling it or losing app data.
 
 Compatible stable PebbleOS releases are checked automatically for Core watches. Enable **Use GitHub
 CI firmware** in the app's Debug settings to check the latest CI prerelease instead.
+Update checks recognize installed firmware by its commit, including builds published under a
+different release label, and compare firmware commit times instead of release publication times.
 
 To build locally, copy `androidApp/src/google-services-dummy.json` to
 `androidApp/src/google-services.json`, then run `./gradlew :androidApp:assembleDebug`. iOS builds
