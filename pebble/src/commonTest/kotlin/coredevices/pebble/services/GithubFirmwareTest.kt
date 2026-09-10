@@ -7,6 +7,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.encodeURLPath
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.rebble.libpebblecommon.connection.FirmwareUpdateCheckResult
@@ -25,21 +26,27 @@ class GithubFirmwareTest {
     fun stableReleaseUsesExactBoardAsset() = runGithubFirmwareTest(
         responses = mapOf(
             "/repos/test/PebbleOS/releases/latest" to release("v1.2.4", assetUrl = "https://download.example/board.pbz"),
+            commitPath("v1.2.4") to commit(),
         ),
     ) { firmware, requests ->
         val result = firmware.getLatestFirmware(watch(), useCiBuilds = false)
 
-        assertEquals(listOf("/repos/test/PebbleOS/releases/latest"), requests)
-        assertEquals("https://download.example/board.pbz", assertIs<FirmwareUpdateCheckResult.FoundUpdate>(result).url)
+        assertEquals(listOf("/repos/test/PebbleOS/releases/latest", commitPath("v1.2.4")), requests)
+        val update = assertIs<FirmwareUpdateCheckResult.FoundUpdate>(result)
+        assertEquals("https://download.example/board.pbz", update.url)
+        assertEquals(DEFAULT_GIT_HASH, update.version.gitHash)
+        assertEquals(Instant.parse("2026-01-01T00:00:00Z"), update.version.timestamp)
     }
 
     @Test
     fun sameNormalizedVersionHasNoUpdate() = runGithubFirmwareTest(
         responses = mapOf(
-            "/repos/test/PebbleOS/releases/latest" to release("v1.2.3"),
+            "/repos/test/PebbleOS/releases/latest" to release("v1.2.3", publishedAt = "2026-02-01T00:00:00Z"),
+            commitPath("v1.2.3") to commit(),
         ),
-    ) { firmware, _ ->
+    ) { firmware, requests ->
         assertIs<FirmwareUpdateCheckResult.FoundNoUpdate>(firmware.getLatestFirmware(watch(), useCiBuilds = false))
+        assertEquals(listOf("/repos/test/PebbleOS/releases/latest", commitPath("v1.2.3")), requests)
     }
 
     @Test
@@ -49,11 +56,12 @@ class GithubFirmwareTest {
                 [${release("ci-main-old", name = "PebbleOS CI v1.2.4", publishedAt = "2026-01-01T00:00:00Z")},
                 ${release("ci-main-new", name = "PebbleOS CI v1.2.5", publishedAt = "2026-01-02T00:00:00Z")}]
             """.trimIndent(),
+            commitPath("ci-main-new") to commit(),
         ),
     ) { firmware, requests ->
         val result = assertIs<FirmwareUpdateCheckResult.FoundUpdate>(firmware.getLatestFirmware(watch(), useCiBuilds = true))
 
-        assertEquals(listOf("/repos/test/PebbleOS/releases?per_page=100"), requests)
+        assertEquals(listOf("/repos/test/PebbleOS/releases?per_page=100", commitPath("ci-main-new")), requests)
         assertEquals("v1.2.5", result.version.stringVersion)
     }
 
@@ -62,11 +70,12 @@ class GithubFirmwareTest {
         responses = mapOf(
             "/repos/test/PebbleOS/releases" to "[${release("v1.2.4", prerelease = false)}]",
             "/repos/test/PebbleOS/releases/latest" to release("v1.2.4"),
+            commitPath("v1.2.4") to commit(),
         ),
     ) { firmware, requests ->
         assertIs<FirmwareUpdateCheckResult.FoundUpdate>(firmware.getLatestFirmware(watch(), useCiBuilds = true))
         assertEquals(
-            listOf("/repos/test/PebbleOS/releases?per_page=100", "/repos/test/PebbleOS/releases/latest"),
+            listOf("/repos/test/PebbleOS/releases?per_page=100", "/repos/test/PebbleOS/releases/latest", commitPath("v1.2.4")),
             requests,
         )
     }
@@ -77,11 +86,100 @@ class GithubFirmwareTest {
             "/repos/test/PebbleOS/releases" to
                 "[${release("ci-main-bad", name = "PebbleOS CI v1.2.4", assetName = "wrong.pbz")} ]",
             "/repos/test/PebbleOS/releases/latest" to release("v1.2.4"),
+            commitPath("v1.2.4") to commit(),
         ),
     ) { firmware, requests ->
         assertIs<FirmwareUpdateCheckResult.FoundUpdate>(firmware.getLatestFirmware(watch(), useCiBuilds = true))
         assertEquals(
-            listOf("/repos/test/PebbleOS/releases?per_page=100", "/repos/test/PebbleOS/releases/latest"),
+            listOf("/repos/test/PebbleOS/releases?per_page=100", "/repos/test/PebbleOS/releases/latest", commitPath("v1.2.4")),
+            requests,
+        )
+    }
+
+    @Test
+    fun sameCommitHasNoUpdateWithDifferentCiLabel() = runGithubFirmwareTest(
+        responses = mapOf(
+            "/repos/test/PebbleOS/releases" to
+                "[${release("ci-main-123", name = "PebbleOS CI v1.2.4", publishedAt = "2026-02-01T00:00:00Z")} ]",
+            commitPath("ci-main-123") to commit(),
+        ),
+    ) { firmware, _ ->
+        assertIs<FirmwareUpdateCheckResult.FoundNoUpdate>(
+            firmware.getLatestFirmware(watch(gitHash = DEFAULT_GIT_HASH.take(7)), useCiBuilds = true),
+        )
+    }
+
+    @Test
+    fun olderCommitHasNoUpdateWhenInstalledSuffixSharesItsBaseVersion() = runGithubFirmwareTest(
+        responses = mapOf(
+            "/repos/test/PebbleOS/releases/latest" to release("v1.2.3", publishedAt = "2026-02-01T00:00:00Z"),
+            commitPath("v1.2.3") to commit(date = "2026-01-01T00:00:00Z"),
+        ),
+    ) { firmware, _ ->
+        assertIs<FirmwareUpdateCheckResult.FoundNoUpdate>(
+            firmware.getLatestFirmware(
+                watch(tag = "1.2.3-custom", timestamp = Instant.parse("2026-01-02T00:00:00Z")),
+                useCiBuilds = false,
+            ),
+        )
+    }
+
+    @Test
+    fun newerCommitProducesUpdate() = runGithubFirmwareTest(
+        responses = mapOf(
+            "/repos/test/PebbleOS/releases/latest" to release("v1.2.3", publishedAt = "2026-01-01T00:00:00Z"),
+            commitPath("v1.2.3") to commit(date = "2026-01-03T00:00:00Z"),
+        ),
+    ) { firmware, _ ->
+        assertIs<FirmwareUpdateCheckResult.FoundUpdate>(
+            firmware.getLatestFirmware(
+                watch(tag = "1.2.3-custom", timestamp = Instant.parse("2026-01-02T00:00:00Z")),
+                useCiBuilds = false,
+            ),
+        )
+    }
+
+    @Test
+    fun recoveryFirmwareOffersUpdateForSameCommit() = runGithubFirmwareTest(
+        responses = mapOf(
+            "/repos/test/PebbleOS/releases/latest" to release("v1.2.3"),
+            commitPath("v1.2.3") to commit(),
+        ),
+    ) { firmware, _ ->
+        assertIs<FirmwareUpdateCheckResult.FoundUpdate>(
+            firmware.getLatestFirmware(watch(gitHash = DEFAULT_GIT_HASH.take(7), isRecovery = true), useCiBuilds = false),
+        )
+    }
+
+    @Test
+    fun missingOrMalformedCommitDataIsRejected() {
+        listOf(
+            commit(sha = null),
+            commit(sha = "not-a-sha"),
+            commit(date = null),
+            commit(date = "not-a-date"),
+        ).forEach { commit ->
+            runGithubFirmwareTest(
+                responses = mapOf(
+                    "/repos/test/PebbleOS/releases/latest" to release("v1.2.4"),
+                    commitPath("v1.2.4") to commit,
+                ),
+            ) { firmware, _ ->
+                assertIs<FirmwareUpdateCheckResult.UpdateCheckFailed>(firmware.getLatestFirmware(watch(), useCiBuilds = false))
+            }
+        }
+    }
+
+    @Test
+    fun commitTagIsPathEncoded() = runGithubFirmwareTest(
+        responses = mapOf(
+            "/repos/test/PebbleOS/releases/latest" to release("v1.2.4-feature/test"),
+            commitPath("v1.2.4-feature/test") to commit(),
+        ),
+    ) { firmware, requests ->
+        assertIs<FirmwareUpdateCheckResult.FoundUpdate>(firmware.getLatestFirmware(watch(), useCiBuilds = false))
+        assertEquals(
+            listOf("/repos/test/PebbleOS/releases/latest", commitPath("v1.2.4-feature/test")),
             requests,
         )
     }
@@ -169,12 +267,31 @@ class GithubFirmwareTest {
         return """{"tag_name":"$tag","name":${name?.let { "\"$it\"" } ?: "null"},"body":"Notes","draft":false,"prerelease":$prerelease,"published_at":"$publishedAt","assets":[${listOf(asset, asset).take(if (duplicateAsset) 2 else 1).joinToString()}]}"""
     }
 
-    private fun watch(): WatchInfo = WatchInfo(
+    private fun commit(
+        sha: String? = DEFAULT_GIT_HASH,
+        date: String? = "2026-01-01T00:00:00Z",
+    ): String = buildString {
+        append('{')
+        sha?.let { append("\"sha\":\"$it\",") }
+        append("\"commit\":{\"committer\":{")
+        date?.let { append("\"date\":\"$it\"") }
+        append("}}}")
+    }
+
+    private fun commitPath(tag: String): String =
+        "/repos/test/PebbleOS/commits/${tag.encodeURLPath(encodeSlash = true)}"
+
+    private fun watch(
+        tag: String = "1.2.3",
+        gitHash: String = "",
+        timestamp: Instant = Instant.parse("2026-01-01T00:00:00Z"),
+        isRecovery: Boolean = false,
+    ): WatchInfo = WatchInfo(
         runningFwVersion = FirmwareVersion.from(
-            tag = "1.2.3",
-            isRecovery = false,
-            gitHash = "",
-            timestamp = Instant.parse("2026-01-01T00:00:00Z"),
+            tag = tag,
+            isRecovery = isRecovery,
+            gitHash = gitHash,
+            timestamp = timestamp,
             isDualSlot = false,
             isSlot0 = false,
         )!!,
@@ -194,4 +311,8 @@ class GithubFirmwareTest {
         javascriptVersion = null,
         color = WatchColor.ClassicFlyBlue,
     )
+
+    private companion object {
+        const val DEFAULT_GIT_HASH = "0123456789abcdef0123456789abcdef01234567"
+    }
 }
