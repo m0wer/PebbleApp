@@ -8,6 +8,7 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
+import io.ktor.http.encodeURLPath
 import io.rebble.libpebblecommon.connection.FirmwareUpdateCheckResult
 import io.rebble.libpebblecommon.services.FirmwareVersion
 import io.rebble.libpebblecommon.services.WatchInfo
@@ -50,6 +51,9 @@ class GithubFirmware(
 
     private suspend fun latestRelease(): GithubRelease = fetch("releases/latest")
 
+    private suspend fun releaseCommit(tag: String): GithubCommit =
+        fetch("commits/${tag.encodeURLPath(encodeSlash = true)}")
+
     private suspend fun latestCiRelease(): GithubRelease? = fetch<List<GithubRelease>>("releases?per_page=100")
         .asSequence()
         .filter { !it.draft && it.prerelease && it.tagName.startsWith(CI_TAG_PREFIX) }
@@ -65,7 +69,7 @@ class GithubFirmware(
         return response.body()
     }
 
-    private fun GithubRelease.toUpdateResult(
+    private suspend fun GithubRelease.toUpdateResult(
         watch: WatchInfo,
         isCiRelease: Boolean,
     ): FirmwareUpdateCheckResult {
@@ -78,14 +82,6 @@ class GithubFirmware(
         if (!VERSION_TAG.matches(versionTag)) {
             throw GithubFirmwareException("Release has an invalid firmware version")
         }
-        val version = FirmwareVersion.from(
-            tag = versionTag,
-            isRecovery = false,
-            gitHash = "",
-            timestamp = timestamp(),
-            isDualSlot = false,
-            isSlot0 = false,
-        ) ?: throw GithubFirmwareException("Release has an invalid firmware version")
         val assetName = "PebbleOS-${watch.platform.revision}.pbz"
         val matchingAssets = assets.filter { it.name == assetName }
         if (matchingAssets.size != 1) {
@@ -100,9 +96,22 @@ class GithubFirmware(
         if ((url.protocol != URLProtocol.HTTP && url.protocol != URLProtocol.HTTPS) || url.host.isBlank()) {
             throw GithubFirmwareException("Release asset download URL is not HTTP(S)")
         }
+        val commit = releaseCommit(tagName).firmwareMetadata()
+        val version = FirmwareVersion.from(
+            tag = versionTag,
+            isRecovery = false,
+            gitHash = commit.gitHash,
+            timestamp = commit.timestamp,
+            isDualSlot = false,
+            isSlot0 = false,
+        ) ?: throw GithubFirmwareException("Release has an invalid firmware version")
         return if (
             !watch.runningFwVersion.isRecovery &&
-            (normalizedVersion(version) == normalizedVersion(watch.runningFwVersion) || version <= watch.runningFwVersion)
+            (
+                commit.matches(watch.runningFwVersion) ||
+                    normalizedVersion(version) == normalizedVersion(watch.runningFwVersion) ||
+                    version <= watch.runningFwVersion
+            )
         ) {
             FirmwareUpdateCheckResult.FoundNoUpdate
         } else {
@@ -114,6 +123,19 @@ class GithubFirmware(
         }
     }
 
+    private fun GithubCommit.firmwareMetadata(): GithubFirmwareMetadata {
+        val gitHash = sha?.takeIf { FULL_GIT_HASH.matches(it) }
+            ?: throw GithubFirmwareException("Commit has an invalid SHA")
+        val date = commit?.committer?.date
+            ?: throw GithubFirmwareException("Commit has no committer date")
+        val timestamp = try {
+            Instant.parse(date)
+        } catch (e: IllegalArgumentException) {
+            throw GithubFirmwareException("Commit has an invalid committer date")
+        }
+        return GithubFirmwareMetadata(gitHash, timestamp)
+    }
+
     private fun GithubRelease.timestamp(): Instant {
         val value = publishedAt ?: createdAt
             ?: throw GithubFirmwareException("Release has no publication timestamp")
@@ -123,6 +145,9 @@ class GithubFirmware(
             throw GithubFirmwareException("Release has an invalid publication timestamp")
         }
     }
+
+    private fun GithubFirmwareMetadata.matches(version: FirmwareVersion): Boolean =
+        ABBREVIATED_GIT_HASH.matches(version.gitHash) && gitHash.startsWith(version.gitHash, ignoreCase = true)
 
     private fun normalizedVersion(version: FirmwareVersion): String = buildString {
         append(version.major)
@@ -142,8 +167,15 @@ class GithubFirmware(
         const val CI_TAG_PREFIX = "ci-main-"
         const val CI_NAME_PREFIX = "PebbleOS CI "
         val VERSION_TAG = Regex("^v?[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:-[^\\s]+)?$")
+        val FULL_GIT_HASH = Regex("^[0-9a-fA-F]{40}$")
+        val ABBREVIATED_GIT_HASH = Regex("^[0-9a-fA-F]{7}$")
     }
 }
+
+private data class GithubFirmwareMetadata(
+    val gitHash: String,
+    val timestamp: Instant,
+)
 
 @Serializable
 private data class GithubRelease(
@@ -161,4 +193,20 @@ private data class GithubRelease(
 private data class GithubReleaseAsset(
     val name: String,
     @SerialName("browser_download_url") val browserDownloadUrl: String,
+)
+
+@Serializable
+private data class GithubCommit(
+    val sha: String? = null,
+    val commit: GithubCommitDetails? = null,
+)
+
+@Serializable
+private data class GithubCommitDetails(
+    val committer: GithubCommitter? = null,
+)
+
+@Serializable
+private data class GithubCommitter(
+    val date: String? = null,
 )
