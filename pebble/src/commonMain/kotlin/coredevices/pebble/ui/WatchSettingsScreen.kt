@@ -162,7 +162,11 @@ import coredevices.util.models.inProgress
 import coredevices.util.rememberUiContext
 import coredevices.util.transcription.PlatformSpeechRecognizer
 import coredevices.util.transcription.OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY
+import coredevices.util.transcription.SpeechModelAvailability
 import coredevices.util.transcription.SpokenLanguageOptions
+import coredevices.util.transcription.platformModelNeedsDownload
+import coredevices.util.transcription.platformModelState
+import coredevices.util.transcription.spokenLanguageLabel
 import coredevices.util.integrations.IntegrationTokenStorage
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.auth.auth

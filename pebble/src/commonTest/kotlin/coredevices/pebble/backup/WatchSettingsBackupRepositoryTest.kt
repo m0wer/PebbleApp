@@ -26,6 +26,7 @@ class WatchSettingsBackupRepositoryTest {
             watchPrefs = listOf(
                 WatchPrefItem("clock24h", "1", Instant.fromEpochMilliseconds(2).asMillisecond()),
                 WatchPrefItem("lightTimeoutMs", "3000", Instant.fromEpochMilliseconds(1).asMillisecond()),
+                WatchPrefItem("dndWeekdaySchedule", "22:00-07:00", Instant.fromEpochMilliseconds(3).asMillisecond()),
             ),
             healthSettings = emptyList(),
             weatherLocationUuids = listOf(Uuid.parse("12345678-1234-1234-1234-123456789abc")),
@@ -70,6 +71,7 @@ class WatchSettingsBackupRepositoryTest {
             valid.replace("\"timestampUnit\": \"milliseconds_since_unix_epoch\"", "\"timestampUnit\": \"seconds_since_unix_epoch\""),
             valid.replace("\"watchPrefs\": []", "\"watchPrefs\": [{\"id\": \"clock24h\", \"encodedValue\": \"2\", \"sourceTimestampEpochMilliseconds\": 1}]"),
             valid.replace("\"watchPrefs\": []", "\"watchPrefs\": [{\"id\": \"unknown\", \"encodedValue\": \"1\", \"sourceTimestampEpochMilliseconds\": 1}]"),
+            valid.replace("\"watchPrefs\": []", "\"watchPrefs\": [{\"id\": \"dndWeekdaySchedule\", \"encodedValue\": \"invalid\", \"sourceTimestampEpochMilliseconds\": 1}]"),
             valid.replace("\"watchPrefs\": []", "\"watchPrefs\": [{\"id\": \"clock24h\", \"encodedValue\": \"1\", \"sourceTimestampEpochMilliseconds\": 1}, {\"id\": \"clock24h\", \"encodedValue\": \"1\", \"sourceTimestampEpochMilliseconds\": 2}]"),
             valid.replace("\"activityPreferences\": null", "\"activityPreferences\": {\"value\": {\"ageYears\": 42}, \"sourceTimestampEpochMilliseconds\": 1}"),
             valid.replace("\"weatherApp\": null", "\"weatherApp\": {\"locationUuids\": [\"not-a-uuid\"]}"),

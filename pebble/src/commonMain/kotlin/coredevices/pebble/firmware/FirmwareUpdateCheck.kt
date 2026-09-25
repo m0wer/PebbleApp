@@ -4,7 +4,7 @@ import co.touchlab.kermit.Logger
 import coredevices.analytics.CoreAnalytics
 import coredevices.pebble.services.EngDashOta
 import coredevices.pebble.services.GithubFirmware
-import coredevices.pebble.services.Memfault
+import coredevices.util.CommonBuildKonfig
 import coredevices.util.CoreConfigFlow
 import io.rebble.libpebblecommon.connection.FirmwareUpdateCheckResult
 import io.rebble.libpebblecommon.metadata.WatchHardwarePlatform
@@ -41,7 +41,6 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 class FirmwareUpdateCheck(
-    private val memfault: Memfault,
     private val engDashOta: EngDashOta,
     private val githubFirmware: GithubFirmware,
     private val cohorts: Cohorts,
@@ -111,14 +110,14 @@ class FirmwareUpdateCheck(
 
     private suspend fun doCheck(watch: WatchInfo): FirmwareUpdateCheckResult = when {
         watch.platform == UNKNOWN -> FirmwareUpdateCheckResult.UpdateCheckFailed("Unknown platform")
-        watch.platform.isCoreDevice() -> engDashOta.getLatestFirmware(watch)
+        watch.platform.isCoreDevice() -> coreDeviceCheck(watch)
         else -> cohorts.getLatestFirmware(watch)
     }
 
     private fun engDashOtaEnabled(): Boolean =
         CommonBuildKonfig.BUG_URL != null && coreConfig.value.useEngDashOta
 
-    /** Prefer GitHub releases, then eng-dash when opted in, with the existing source as fallback. */
+    /** Prefer GitHub releases, then eng-dash when opted in, with cohorts as fallback. */
     private suspend fun coreDeviceCheck(watch: WatchInfo): FirmwareUpdateCheckResult {
         val githubResult = githubFirmware.getLatestFirmware(
             watch = watch,
@@ -136,11 +135,7 @@ class FirmwareUpdateCheck(
             logger.w { "eng-dash OTA check failed (${result.error}); falling back" }
             coreAnalytics.logEvent("core_ota_failed")
         }
-        return if (CommonBuildKonfig.MEMFAULT_TOKEN != null) {
-            memfault.getLatestFirmware(watch)
-        } else {
-            cohorts.getLatestFirmware(watch)
-        }
+        return cohorts.getLatestFirmware(watch)
     }
 
     companion object {
