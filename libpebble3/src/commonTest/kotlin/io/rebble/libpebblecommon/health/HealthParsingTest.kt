@@ -109,6 +109,31 @@ class HealthParsingTest {
     }
 
     @Test
+    fun upstreamV14Spo2SamplesDoNotBecomeSleepIntent() {
+        val buffer = DataBuffer(UByteArray(9 + 18 * 2))
+        buffer.setEndian(Endian.Little)
+        buffer.putUShort(14u)
+        buffer.putUInt(1_700_000_000u)
+        buffer.putByte(0)
+        buffer.putUByte(18u)
+        buffer.putUByte(2u)
+        repeat(2) { index ->
+            buffer.putUByte((index + 10).toUByte())
+            buffer.putUByte(0u)
+            buffer.putUShort(0u)
+            buffer.putUByte(0u)
+            buffer.putUByte(0u)
+            repeat(6 + 1 + 2 + 1) { buffer.putUByte(0u) }
+            buffer.putUByte(99u) // SpO2 percentage
+            buffer.putUByte(2u) // SpO2 quality
+        }
+
+        val records = parseStepsData(buffer.array().toByteArray(), 45u)
+        assertEquals(listOf(10, 11), records.map { it.steps })
+        assertEquals(listOf(0, 0), records.map { it.sleepIntentHint })
+    }
+
+    @Test
     fun truncatedV14ItemDoesNotConsumeFollowingItem() {
         fun payload(version: UShort, recordSize: Int): ByteArray {
             val buffer = DataBuffer(UByteArray(9 + recordSize))

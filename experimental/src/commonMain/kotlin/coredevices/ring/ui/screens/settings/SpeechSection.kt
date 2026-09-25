@@ -28,6 +28,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import coredevices.util.models.ModelInfo
+import coredevices.util.models.ModelDownloadStatus
+import coredevices.util.models.inProgressSlug
 import coredevices.util.models.ModelManager
 import coredevices.util.models.RecommendedModel
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +57,8 @@ import coredevices.util.CloudTranscriptionProvider
 import coredevices.util.OpenAITranscriptionConfig
 import coredevices.util.integrations.IntegrationTokenStorage
 import coredevices.util.transcription.OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY
+import coredevices.util.transcription.PlatformSpeechRecognizer
+import coredevices.util.transcription.SpeechModelAvailability
 import coredevices.util.transcription.SpokenLanguageOptions
 import coredevices.util.transcription.platformModelNeedsDownload
 import coredevices.util.transcription.platformModelState
@@ -141,6 +145,7 @@ internal fun spokenLanguageRowSubtitle(spokenLanguage: String?, selectable: Bool
 fun SpeechSection(
     mode: CactusSTTMode,
     spokenLanguage: String?,
+    selectedModel: String?,
     cloudProvider: CloudTranscriptionProvider,
     openAI: OpenAITranscriptionConfig,
     onDeviceSupported: Boolean,
@@ -164,8 +169,36 @@ fun SpeechSection(
     var pendingDownloadMode by remember { mutableStateOf<CactusSTTMode?>(null) }
     var pendingDownloadModel by remember { mutableStateOf<ModelInfo?>(null) }
     val modelManager = koinInject<ModelManager>()
+    val platformSpeechRecognizer = koinInject<PlatformSpeechRecognizer>()
     val tokenStorage = koinInject<IntegrationTokenStorage>()
     val scope = rememberCoroutineScope()
+    val recommendedModel = remember { modelManager.getRecommendedSTTModel() }
+    val currentModel = selectedModel ?: recommendedModel.modelSlug
+    val downloadStatus by modelManager.modelDownloadStatus.collectAsState()
+    val selectableModels by produceState(emptyList<ModelInfo>()) {
+        value = modelManager.getSelectableSTTModels()
+    }
+    val currentModelInfo = selectableModels.firstOrNull { it.slug == currentModel }
+    val languageSelectable = spokenLanguageSelectable(mode, currentModelInfo)
+    var deletions by remember { mutableStateOf(0) }
+    val downloadedSlugs by produceState(emptyList<String>(), downloadStatus, deletions) {
+        value = withContext(Dispatchers.Default) { modelManager.getDownloadedSTTModelSlugs() }
+    }
+    val localModelReady = hasOfflineModels && (deletions == 0 || currentModel in downloadedSlugs)
+    val platformDownloadStatus by platformSpeechRecognizer.downloadStatus.collectAsState()
+    val platformModelAvailability by produceState(
+        SpeechModelAvailability.Unsupported,
+        spokenLanguage,
+        platformDownloadStatus,
+        platformSttAvailable,
+    ) {
+        value = if (platformSttAvailable) {
+            withContext(Dispatchers.Default) { platformSpeechRecognizer.modelAvailability(spokenLanguage) }
+        } else {
+            SpeechModelAvailability.Unsupported
+        }
+    }
+    val platformNeedsDownload = platformModelNeedsDownload(platformModelAvailability, platformDownloadStatus)
     var apiKey by remember { mutableStateOf("") }
     androidx.compose.runtime.LaunchedEffect(tokenStorage) {
         apiKey = tokenStorage.getToken(OPENAI_TRANSCRIPTION_API_KEY_STORAGE_KEY).orEmpty()
@@ -417,6 +450,71 @@ private fun SpeechEngineSheet(
                             tint = colors.primary,
                             modifier = Modifier.size(18.dp),
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeechModelSheet(
+    current: String,
+    models: List<ModelInfo>,
+    downloadedSlugs: List<String>,
+    downloadStatus: ModelDownloadStatus,
+    onSelect: (ModelInfo) -> Unit,
+    onDelete: (ModelInfo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = IndexTheme.colors
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.sheetSurface) {
+        Column(modifier = Modifier.padding(bottom = 28.dp)) {
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
+                Text("Speech Model", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = colors.onSurface)
+                Text("Select which model transcribes on this phone", fontSize = 12.sp, color = colors.onSurfaceVariant)
+            }
+            models.forEach { info ->
+                val selected = info.slug == current
+                val downloaded = info.slug in downloadedSlugs
+                val downloading = downloadStatus.inProgressSlug == info.slug
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                        .selectedSheetRowBackground(selected)
+                        .clickable(enabled = !downloading) { onSelect(info) }
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(info.slug, fontSize = 15.sp, color = colors.onSurface)
+                        Text(
+                            if (downloading) "Downloading…" else speechModelDetail(info, downloaded),
+                            fontSize = 12.sp,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                    when {
+                        downloading -> CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.primary,
+                        )
+                        !downloaded -> Icon(
+                            Icons.Default.Download, contentDescription = null, tint = colors.outline,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        else -> {
+                            if (selected) Icon(
+                                Icons.Default.Check, contentDescription = null, tint = colors.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            IconButton(onClick = { onDelete(info) }) {
+                                Icon(
+                                    Icons.Default.Delete, contentDescription = "Delete ${info.slug}",
+                                    tint = colors.error, modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

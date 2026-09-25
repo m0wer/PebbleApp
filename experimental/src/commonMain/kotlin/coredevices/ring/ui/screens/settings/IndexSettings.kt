@@ -405,6 +405,7 @@ fun IndexSettings(coreNav: CoreNav) {
                 SpeechSection(
                     mode = coreConfig.sttConfig.mode,
                     spokenLanguage = coreConfig.sttConfig.spokenLanguage,
+                    selectedModel = selectedSttModel,
                     cloudProvider = coreConfig.sttConfig.cloudProvider,
                     openAI = coreConfig.sttConfig.openAI,
                     onDeviceSupported = onDeviceSpeechSupported,

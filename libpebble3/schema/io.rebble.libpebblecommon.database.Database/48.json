@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 47,
-    "identityHash": "45a8dc4bfac7f690c9fa2e338bf7baee",
+    "version": 48,
+    "identityHash": "0fbc5debc55c46a4943abccbb276f7c1",
     "entities": [
       {
         "tableName": "KnownWatchItem",
@@ -1224,7 +1224,7 @@
       },
       {
         "tableName": "health_data",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timestamp` INTEGER NOT NULL, `steps` INTEGER NOT NULL, `orientation` INTEGER NOT NULL, `intensity` INTEGER NOT NULL, `lightIntensity` INTEGER NOT NULL, `activeMinutes` INTEGER NOT NULL, `restingGramCalories` INTEGER NOT NULL, `activeGramCalories` INTEGER NOT NULL, `distanceCm` INTEGER NOT NULL, `heartRate` INTEGER NOT NULL, `heartRateZone` INTEGER NOT NULL, `heartRateWeight` INTEGER NOT NULL, PRIMARY KEY(`timestamp`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timestamp` INTEGER NOT NULL, `steps` INTEGER NOT NULL, `orientation` INTEGER NOT NULL, `intensity` INTEGER NOT NULL, `lightIntensity` INTEGER NOT NULL, `activeMinutes` INTEGER NOT NULL, `restingGramCalories` INTEGER NOT NULL, `activeGramCalories` INTEGER NOT NULL, `distanceCm` INTEGER NOT NULL, `heartRate` INTEGER NOT NULL, `heartRateZone` INTEGER NOT NULL, `heartRateWeight` INTEGER NOT NULL, `pluggedIn` INTEGER NOT NULL DEFAULT 0, `sleepIntentHint` INTEGER NOT NULL DEFAULT 0, `timezoneOffset15Minutes` INTEGER NOT NULL DEFAULT 0, `sleepScore` INTEGER NOT NULL DEFAULT 0, `sleepFlags` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`timestamp`))",
         "fields": [
           {
             "fieldPath": "timestamp",
@@ -1297,6 +1297,41 @@
             "columnName": "heartRateWeight",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "pluggedIn",
+            "columnName": "pluggedIn",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sleepIntentHint",
+            "columnName": "sleepIntentHint",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "timezoneOffset15Minutes",
+            "columnName": "timezoneOffset15Minutes",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sleepScore",
+            "columnName": "sleepScore",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sleepFlags",
+            "columnName": "sleepFlags",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -1910,7 +1945,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '45a8dc4bfac7f690c9fa2e338bf7baee')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0fbc5debc55c46a4943abccbb276f7c1')"
     ]
   }
 }

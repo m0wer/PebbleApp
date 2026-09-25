@@ -13,7 +13,9 @@ import io.rebble.libpebblecommon.database.entity.HrmPreferencesValue.Companion.e
 import io.rebble.libpebblecommon.database.entity.NumberWatchPref
 import io.rebble.libpebblecommon.database.entity.QuickLaunchSetting
 import io.rebble.libpebblecommon.database.entity.QuicklaunchWatchPref
+import io.rebble.libpebblecommon.database.entity.QuietTimeSchedule
 import io.rebble.libpebblecommon.database.entity.RgbColorWatchPref
+import io.rebble.libpebblecommon.database.entity.ScheduleWatchPref
 import io.rebble.libpebblecommon.database.entity.UnitsDistanceValue
 import io.rebble.libpebblecommon.database.entity.UnitsDistanceValue.Companion.encodeToString
 import io.rebble.libpebblecommon.database.entity.WatchPref
@@ -167,6 +169,8 @@ object WatchSettingsBackupCodec {
                 require(value != null && value in watchPref.min.toLong()..watchPref.max.toLong()) { "Invalid numeric preference value." }
             }
             is QuicklaunchWatchPref -> QuickLaunchSetting.fromJson(pref.encodedValue)
+            is ScheduleWatchPref ->
+                requireNotNull(QuietTimeSchedule.parse(pref.encodedValue)) { "Invalid schedule preference value." }
             is RgbColorWatchPref -> {
                 val rgb = pref.encodedValue.toUIntOrNull()
                 require(rgb != null && rgb <= 0x00FFFFFFu) { "Invalid RGB preference value." }

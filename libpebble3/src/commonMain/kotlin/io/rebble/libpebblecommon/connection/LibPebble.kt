@@ -105,7 +105,7 @@ sealed class PebbleConnectionEvent {
 @Stable
 interface LibPebble : Scanning, RequestSync, LockerApi, NotificationApps, CallManagement, Calendar,
     OtherPebbleApps, PKJSToken, Watches, Errors, Contacts, AnalyticsEvents, HealthApi, WatchPrefs,
-    SystemGeolocation, Timeline, Vibrations, Weather, HealthDataApi, WatchSettingsBackupApi {
+    SystemGeolocation, Timeline, Vibrations, Weather, HealthDataApi, WatchSettingsBackupApi, Plugins {
     fun init()
 
     val config: StateFlow<LibPebbleConfig>

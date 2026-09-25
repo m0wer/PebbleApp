@@ -97,7 +97,7 @@ internal const val DATABASE_FILENAME = "libpebble3.db"
         AppPrefsEntrySyncEntity::class,
         NotificationRuleEntity::class,
     ],
-    version = 47,
+    version = 48,
     autoMigrations = [
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
@@ -135,7 +135,6 @@ internal const val DATABASE_FILENAME = "libpebble3.db"
         AutoMigration(from = 43, to = 44),
         AutoMigration(from = 44, to = 45),
         AutoMigration(from = 45, to = 46),
-        AutoMigration(from = 46, to = 47),
     ],
     exportSchema = true,
 )
@@ -180,9 +179,38 @@ val MIGRATION_39_40 = object : Migration(39, 40) {
     }
 }
 
+private fun SQLiteConnection.addColumnIfMissing(table: String, column: String, declaration: String) {
+    val columns = prepare("PRAGMA table_info(`$table`)").use { statement ->
+        buildSet {
+            while (statement.step()) add(statement.getText(1))
+        }
+    }
+    if (column !in columns) {
+        execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $declaration")
+    }
+}
+
+// Version 46 was used by both upstream (calendar writable) and earlier fork builds
+// (health context). Bring either schema forward without dropping existing data.
+val MIGRATION_46_47 = object : Migration(46, 47) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.addColumnIfMissing("CalendarEntity", "writable", "INTEGER NOT NULL DEFAULT 1")
+        connection.addColumnIfMissing("LockerEntryEntity", "pluginManifest", "TEXT DEFAULT NULL")
+        connection.addColumnIfMissing("LockerEntryEntity", "configPage", "TEXT DEFAULT NULL")
+    }
+}
+
+val MIGRATION_47_48 = object : Migration(47, 48) {
+    override fun migrate(connection: SQLiteConnection) {
+        for (column in listOf("pluggedIn", "sleepIntentHint", "timezoneOffset15Minutes", "sleepScore", "sleepFlags")) {
+            connection.addColumnIfMissing("health_data", column, "INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
 fun getRoomDatabase(ctx: AppContext): Database {
     return getDatabaseBuilder(ctx)
-        .addMigrations(MIGRATION_39_40)
+        .addMigrations(MIGRATION_39_40, MIGRATION_46_47, MIGRATION_47_48)
         .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         // V7 required a full re-create.
         .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3, 4, 5, 6, 7, 8, 9)

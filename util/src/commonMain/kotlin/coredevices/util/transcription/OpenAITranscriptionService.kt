@@ -167,6 +167,7 @@ class OpenAITranscriptionService(
         contentContext: String?,
         encoding: AudioEncoding,
         initialTimeout: Duration?,
+        totalTimeout: Duration?,
     ): Flow<TranscriptionSessionStatus> = flow {
         val configured = config
         val endpoint = configured.transcriptionUrlOrNull()

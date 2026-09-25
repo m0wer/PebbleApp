@@ -35,6 +35,7 @@ import coredevices.util.transcription.CactusModelPathProvider
 import coredevices.util.transcription.CactusTranscriptionService
 import coredevices.util.transcription.HybridTranscriptionService
 import coredevices.util.transcription.KirinkiTranscriptionService
+import coredevices.util.transcription.LocalTranscriptionService
 import coredevices.util.transcription.OpenAITranscriptionService
 import coredevices.util.transcription.PlatformSpeechRecognizer
 import coredevices.util.transcription.TranscriptionService
@@ -117,8 +118,8 @@ val utilModule = module {
     }
     singleOf(::PlatformSpeechRecognizer)
     single {
-        HybridTranscriptionService(get(), get(), get(), get(), get(), get(), get())
-    } bind TranscriptionService::class
+        HybridTranscriptionService(get(), get(), get(), get(), get(), get(), get(), get())
+    } binds arrayOf(TranscriptionService::class, LocalTranscriptionService::class)
     singleOf(::WisprFlowRESTTranscriptionService)
     singleOf(::KirinkiTranscriptionService)
     single {
@@ -127,4 +128,5 @@ val utilModule = module {
     single<UsersDao> { UsersDaoImpl({ get() }, get(), get(), get(), get()) }
     singleOf(::HealthSyncTracker)
     singleOf(::PlatformHealthSync)
+    single { EngDashOtaApiImpl() } bind EngDashOtaApi::class
 }

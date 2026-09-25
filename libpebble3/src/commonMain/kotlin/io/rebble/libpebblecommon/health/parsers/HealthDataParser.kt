@@ -20,7 +20,8 @@ private val logger = Logger.withTag("HealthDataParser")
  * - Firmware 4.0 (version 7) - adds heart rate data
  * - Firmware 4.1 (version 12) - adds heart rate weight
  * - Firmware 4.3 (version 13) - adds heart rate zone
- * - Firmware 4.3+ (version 14) - adds Quiet Time sleep intent hint
+ * - Fork firmware (version 14, 17-byte sample) - adds Quiet Time sleep intent hint
+ * - Upstream firmware (version 14, 18-byte sample) - adds SpO2 fields
  * - Firmware version 15 - adds sleep score and diagnostic flags
  *
  * @param payload Raw byte array from the watch
@@ -58,23 +59,27 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
         val version = buffer.getUShort()
         val timestamp = buffer.getUInt()
         val timezoneOffset15Minutes = buffer.getByte().toInt()
-        buffer.getUByte() // recordLength
+        val declaredSampleSize = buffer.getUByte().toInt()
         val recordNum = buffer.getUByte()
 
-        val isNewerVersion = version > VERSION_FW_4_3 && sampleSize >= VERSION_FW_4_3_SAMPLE_SIZE
-        if (!SUPPORTED_STEP_VERSIONS.contains(version) && !isNewerVersion) {
+        val sampleSize = declaredSampleSize.takeIf { it != 0 } ?: stepRecordSize(version)
+
+        val isNewerVersion = version > VERSION_WITH_SLEEP_DIAGNOSTICS &&
+            sampleSize >= stepRecordSize(VERSION_WITH_SLEEP_DIAGNOSTICS)
+        val invalidSampleSize = version >= VERSION_FW_4_3_WITH_SLEEP_INTENT &&
+            sampleSize < (if (version >= VERSION_WITH_SLEEP_DIAGNOSTICS) stepRecordSize(VERSION_WITH_SLEEP_DIAGNOSTICS)
+                          else stepRecordSize(VERSION_FW_4_3_WITH_SLEEP_INTENT))
+        if ((!SUPPORTED_STEP_VERSIONS.contains(version) && !isNewerVersion) || invalidSampleSize) {
             logger.w {
                 "Unsupported health steps record version=$version, skipping packet $i of $packetCount"
             }
             // Skip to next packet instead of aborting entire payload
-            val consumed = buffer.readPosition - itemStart
-            val remaining = itemSize.toInt() - consumed
-            if (remaining > 0) buffer.getBytes(remaining)
+            skipToItemEnd(buffer, itemEnd)
             continue
         }
 
         var currentTimestamp = timestamp
-        val recordSize = stepRecordSize(version)
+        val recordSize = if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) sampleSize else stepRecordSize(version)
 
         for (j in 0 until recordNum.toInt()) {
             if (!hasBytesInItem(buffer, itemEnd, recordSize)) {
@@ -120,7 +125,9 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                 heartRateZone = buffer.getUByte().toInt()
             }
 
-            if (version >= VERSION_FW_4_3_WITH_SLEEP_INTENT) {
+            val hasSleepIntent = version >= VERSION_WITH_SLEEP_DIAGNOSTICS ||
+                (version == VERSION_FW_4_3_WITH_SLEEP_INTENT && sampleSize == stepRecordSize(version))
+            if (hasSleepIntent) {
                 sleepIntentHint = buffer.getUByte().toInt()
             }
 
@@ -128,6 +135,14 @@ fun parseStepsData(payload: ByteArray, itemSize: UShort): List<HealthDataEntity>
                 sleepScore = buffer.getUInt().toLong()
                 sleepFlags = buffer.getUShort().toInt()
             }
+
+            val parsedBytes = when {
+                version >= VERSION_WITH_SLEEP_DIAGNOSTICS -> stepRecordSize(VERSION_WITH_SLEEP_DIAGNOSTICS)
+                hasSleepIntent -> stepRecordSize(VERSION_FW_4_3_WITH_SLEEP_INTENT)
+                else -> stepRecordSize(VERSION_FW_4_3)
+            }
+            val remainingSampleBytes = recordSize - parsedBytes
+            if (remainingSampleBytes > 0) buffer.getBytes(remainingSampleBytes)
 
             records.add(
                 HealthDataEntity(
