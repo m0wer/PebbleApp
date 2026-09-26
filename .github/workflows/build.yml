@@ -18,7 +18,11 @@ jobs:
         uses: actions/setup-java@v6.0.1
         with:
           distribution: 'temurin'
-          java-version: 17
+          # 17 for the jvmToolchain modules; 21 (the default) runs Gradle and host tests, since
+          # some dependencies (e.g. kmp-health) ship Java 21 bytecode.
+          java-version: |
+            17
+            21
       - name: Checkout source
         uses: actions/checkout@v4
         with:
@@ -109,7 +113,11 @@ jobs:
         uses: actions/setup-java@v6.0.1
         with:
           distribution: 'temurin'
-          java-version: 17
+          # 17 for the jvmToolchain modules; 21 (the default) runs Gradle and host tests, since
+          # some dependencies (e.g. kmp-health) ship Java 21 bytecode.
+          java-version: |
+            17
+            21
       - name: Checkout source
         uses: actions/checkout@v4
         with:

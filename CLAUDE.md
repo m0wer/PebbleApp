@@ -126,7 +126,8 @@ Always use imports where possible, rather than fully-qualified references in the
 ### Basics
 
 - Gradle wrapper at the root: `./gradlew`.
-- JDK 17 required. JVM target is 17 across modules.
+- JDK 21 runs Gradle and host tests (some dependencies ship Java 21 bytecode); JDK 17 is also
+  needed for the `jvmToolchain` modules. JVM target is 17 across modules.
 - Version catalog: `gradle/libs.versions.toml`.
 - Android: `./gradlew :androidApp:assembleDebug` / `assembleRelease`. Needs `androidApp/src/google-services.json` (a dummy is committed alongside).
 - iOS: `./gradlew podInstall`, then build from Xcode against `iosApp/iosApp.xcworkspace`.
