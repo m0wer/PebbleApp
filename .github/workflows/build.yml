@@ -78,6 +78,22 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEYSTORE_ALIAS: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      - name: Build locally signed Android release
+        if: >-
+          !(github.repository == 'm0wer/PebbleApp' &&
+            (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
+        run: |
+          echo LOCAL_RELEASE_BUILD=true >> local.properties
+          ./gradlew :androidApp:assembleRelease
+        env:
+          GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR || github.actor }}
+          GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN || github.token }}
+      - name: Upload Android release APK for the smoke test
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: androidApp/build/outputs/apk/release/androidApp-release.apk
+          if-no-files-found: error
       - name: Prepare installable Android APK
         if: >-
           github.repository == 'm0wer/PebbleApp' &&
@@ -102,6 +118,16 @@ jobs:
             dist/PebbleApp-ci-${{ github.sha }}.apk
             dist/PebbleApp-ci-${{ github.sha }}.apk.sha256
           if-no-files-found: error
+
+  smoke-test:
+    needs: android
+    uses: ./.github/workflows/android-smoke-test.yml
+    permissions:
+      contents: read
+    with:
+      apk-artifact: android-release-apk
+      # Only builds signed with the release key can upgrade a published release.
+      upgrade-from-latest-release: ${{ github.repository == 'm0wer/PebbleApp' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
 
   ios:
     runs-on: macos-15

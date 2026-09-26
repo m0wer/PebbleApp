@@ -1,0 +1,67 @@
+name: Android smoke test
+
+# Installs a release APK on an emulator, starts it, runs monkey and restarts it, failing on any
+# crash or ANR. See scripts/android-smoke-test.sh.
+on:
+  workflow_call:
+    inputs:
+      apk-artifact:
+        description: Artifact holding the APK to test
+        required: true
+        type: string
+      upgrade-from-latest-release:
+        description: >-
+          Install and start the latest published release first, then upgrade to the APK. Needs
+          the APK to be signed with the release key.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.apk-artifact }}
+          path: apk
+      - name: Download latest published release
+        if: inputs.upgrade-from-latest-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir previous; then
+            echo "PREVIOUS_APK=$(ls previous/*.apk)" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No published release APK found, testing a fresh install only"
+          fi
+      - name: Select APK
+        run: echo "SMOKE_APK=$(ls apk/*.apk)" >> "$GITHUB_ENV"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
+          disable-animations: true
+          script: scripts/android-smoke-test.sh "$SMOKE_APK" smoke-test
+      - name: Upload smoke test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.apk-artifact }}-smoke-test-logs
+          path: smoke-test
+          if-no-files-found: ignore

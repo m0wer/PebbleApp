@@ -155,5 +155,9 @@ When asked to make a release build and install it on a local device, follow the 
     - `adb -s <device-id> shell monkey -p coredevices.coreapp -c android.intent.category.LAUNCHER 1`
     - wait long enough for `PebbleService` / Ring BLE scanning to start, then check for `FATAL EXCEPTION`, `ClassNotFoundException`, `Room cannot verify`, and `Process: coredevices.coreapp`.
 
+`scripts/android-smoke-test.sh APK` automates this check (plus a monkey run and a restart) on any
+connected device or emulator; set `PREVIOUS_APK` to test an upgrade. CI runs it on every build and
+before publishing a release (`.github/workflows/android-smoke-test.yml`).
+
 Release builds are minified. If a release-only crash appears in Haversine/native BLE code, check R8 keep rules before changing app logic. In particular, the Haversine native library resolves `com.wtlp.haversinesatellitelibrary.logging.HaversineLog` by exact JVM class name, so the app proguard rules must keep that class.
 
