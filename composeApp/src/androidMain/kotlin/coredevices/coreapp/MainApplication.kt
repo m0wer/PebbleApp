@@ -31,15 +31,11 @@ import com.google.firebase.crashlytics.crashlytics
 import com.mmk.kmpnotifier.notification.NotifierManager
 import com.mmk.kmpnotifier.notification.configuration.NotificationPlatformConfiguration
 import coredevices.ExperimentalDevices
-import coredevices.coreapp.di.androidDefaultModule
-import coredevices.coreapp.di.apiModule
-import coredevices.coreapp.di.utilModule
+import coredevices.coreapp.di.androidAppModules
 import coredevices.coreapp.util.FileLogWriter
 import coredevices.coreapp.util.initLogging
 import coredevices.coreapp.util.registerBluetoothPairingDebugLogger
-import coredevices.experimentalModule
 import coredevices.pebble.PebbleAppDelegate
-import coredevices.pebble.watchModule
 import coredevices.util.CoreConfig
 import coredevices.util.CoreConfigHolder
 import coredevices.util.R
@@ -71,14 +67,11 @@ class MainApplication : Application(), SingletonImageLoader.Factory, Configurati
         }
         startKoin {
             modules(
-                module {
-                    androidContext(this@MainApplication)
-                },
-                androidDefaultModule,
-                experimentalModule,
-                apiModule,
-                utilModule,
-                watchModule,
+                listOf(
+                    module {
+                        androidContext(this@MainApplication)
+                    },
+                ) + androidAppModules
             )
         }
         initLogging()
