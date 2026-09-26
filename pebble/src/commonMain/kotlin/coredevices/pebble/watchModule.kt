@@ -131,6 +131,8 @@ val watchModule = module {
         )
     } binds arrayOf(LibPebble3::class, NotificationApps::class, SystemGeolocation::class)
 
+    singleOf(::HostedPluginOAuthApi) bind PluginOAuthApi::class
+
     includes(platformWatchModule, backupModule)
 
     single { object : PebbleAccountProvider {
