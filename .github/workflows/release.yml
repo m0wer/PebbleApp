@@ -10,10 +10,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish-android:
+  build-android:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: read
     steps:
       - name: Validate release tag
@@ -78,6 +78,33 @@ jobs:
           cd dist
           sha256sum "PebbleApp-${RELEASE_TAG}.apk" > \
             "PebbleApp-${RELEASE_TAG}.apk.sha256"
+      - name: Upload Android release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: dist/
+          if-no-files-found: error
+
+  smoke-test:
+    needs: build-android
+    uses: ./.github/workflows/android-smoke-test.yml
+    permissions:
+      contents: read
+    with:
+      apk-artifact: android-release
+      upgrade-from-latest-release: true
+
+  publish-android:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Android release files
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: dist
       - name: Create release
         uses: softprops/action-gh-release@v3.0.2
         with:
