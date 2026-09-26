@@ -190,33 +190,34 @@ private fun SQLiteConnection.addColumnIfMissing(table: String, column: String, d
     }
 }
 
-// Version 46 was used by both upstream (calendar writable) and earlier fork builds
-// (health context). Bring either schema forward without dropping existing data.
-val MIGRATION_46_47 = object : Migration(46, 47) {
-    override fun migrate(connection: SQLiteConnection) {
-        connection.addColumnIfMissing("CalendarEntity", "writable", "INTEGER NOT NULL DEFAULT 1")
-        connection.addColumnIfMissing("LockerEntryEntity", "pluginManifest", "TEXT DEFAULT NULL")
-        connection.addColumnIfMissing("LockerEntryEntity", "configPage", "TEXT DEFAULT NULL")
+// Fork releases used versions 46 and 47 for schemas that differ from upstream's (the fork had the
+// health context columns, upstream the calendar and plugin ones). Room only validates the final
+// schema, so both steps add everything either history may lack and all of them converge on 48.
+private fun SQLiteConnection.addForkAndUpstreamColumns() {
+    addColumnIfMissing("CalendarEntity", "writable", "INTEGER NOT NULL DEFAULT 1")
+    addColumnIfMissing("LockerEntryEntity", "pluginManifest", "TEXT DEFAULT NULL")
+    addColumnIfMissing("LockerEntryEntity", "configPage", "TEXT DEFAULT NULL")
+    for (column in listOf("pluggedIn", "sleepIntentHint", "timezoneOffset15Minutes", "sleepScore", "sleepFlags")) {
+        addColumnIfMissing("health_data", column, "INTEGER NOT NULL DEFAULT 0")
     }
+}
+
+val MIGRATION_46_47 = object : Migration(46, 47) {
+    override fun migrate(connection: SQLiteConnection) = connection.addForkAndUpstreamColumns()
 }
 
 val MIGRATION_47_48 = object : Migration(47, 48) {
-    override fun migrate(connection: SQLiteConnection) {
-        for (column in listOf("pluggedIn", "sleepIntentHint", "timezoneOffset15Minutes", "sleepScore", "sleepFlags")) {
-            connection.addColumnIfMissing("health_data", column, "INTEGER NOT NULL DEFAULT 0")
-        }
-    }
+    override fun migrate(connection: SQLiteConnection) = connection.addForkAndUpstreamColumns()
 }
 
-fun getRoomDatabase(ctx: AppContext): Database {
-    return getDatabaseBuilder(ctx)
-        .addMigrations(MIGRATION_39_40, MIGRATION_46_47, MIGRATION_47_48)
+fun getRoomDatabase(ctx: AppContext): Database = getDatabaseBuilder(ctx).withMigrations().build()
+
+internal fun RoomDatabase.Builder<Database>.withMigrations(): RoomDatabase.Builder<Database> =
+    addMigrations(MIGRATION_39_40, MIGRATION_46_47, MIGRATION_47_48)
         .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         // V7 required a full re-create.
         .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3, 4, 5, 6, 7, 8, 9)
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO)
-        .build()
-}
 
 internal expect fun getDatabaseBuilder(ctx: AppContext): RoomDatabase.Builder<Database>
