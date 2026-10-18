@@ -9,6 +9,51 @@ import kotlin.test.assertTrue
 
 class DatabaseMigrationTest {
     @Test
+    fun collidingVersionsConvergeWithoutGrantingLegacyPermissions() {
+        for (migration in MIGRATIONS_TO_50) {
+            BundledSQLiteDriver().open(":memory:").use { connection ->
+                createPreviousTables(connection, forkSchema = true, upstreamVersion = 46)
+                connection.execSQL("CREATE TABLE LockerAppPermission (permission TEXT NOT NULL)")
+                connection.execSQL("INSERT INTO LockerAppPermission VALUES ('legacy')")
+
+                migration.migrate(connection)
+                migration.migrate(connection)
+
+                assertEquals(7, connection.healthContext())
+                assertEquals(1, connection.rowCount("health_data"))
+                assertEquals(1, connection.rowCount("LockerAppPermission"))
+                assertEquals(0, connection.rowCount("AppPermission"))
+                assertEquals(1, connection.columnValue("LockerEntryEntity", "manifestVersion"))
+                assertTrue("seenAtMs" in connection.columns("AppPermission"))
+            }
+        }
+    }
+
+    @Test
+    fun upstreamPermissionDecisionsArePreserved() {
+        for (migration in MIGRATIONS_TO_50.takeLast(2)) {
+            BundledSQLiteDriver().open(":memory:").use { connection ->
+                createPreviousTables(connection, forkSchema = false, upstreamVersion = 47)
+                connection.execSQL(
+                    """CREATE TABLE AppPermission (
+                        appUuid TEXT NOT NULL, permission TEXT NOT NULL, granted INTEGER,
+                        requestedAtMs INTEGER NOT NULL, decidedAtMs INTEGER, lastUsedAtMs INTEGER,
+                        PRIMARY KEY(appUuid, permission))"""
+                )
+                connection.execSQL("INSERT INTO AppPermission VALUES ('watchface', 'network', 0, 123, 456, 789)")
+
+                migration.migrate(connection)
+
+                assertEquals(0, connection.columnValue("AppPermission", "granted"))
+                assertEquals(123, connection.columnValue("AppPermission", "requestedAtMs"))
+                assertEquals(456, connection.columnValue("AppPermission", "decidedAtMs"))
+                assertEquals(789, connection.columnValue("AppPermission", "lastUsedAtMs"))
+                assertEquals("existing-plugin", connection.textValue("LockerEntryEntity", "pluginManifest"))
+            }
+        }
+    }
+
+    @Test
     fun oldForkVersion46KeepsHealthContextAndGainsUpstreamColumns() {
         BundledSQLiteDriver().open(":memory:").use { connection ->
             createPreviousTables(connection, forkSchema = true, upstreamVersion = 46)

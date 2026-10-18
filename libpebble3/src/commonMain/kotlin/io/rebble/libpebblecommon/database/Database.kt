@@ -97,7 +97,7 @@ internal const val DATABASE_FILENAME = "libpebble3.db"
         AppPrefsEntrySyncEntity::class,
         NotificationRuleEntity::class,
     ],
-    version = 49,
+    version = 50,
     autoMigrations = [
         AutoMigration(from = 10, to = 11),
         AutoMigration(from = 11, to = 12),
@@ -216,10 +216,28 @@ val MIGRATION_47_48 = object : Migration(47, 48) {
     override fun migrate(connection: SQLiteConnection) = connection.addForkAndUpstreamColumns()
 }
 
+// Fork and upstream versions overlap, so converge directly without traversing colliding schemas.
+val MIGRATIONS_TO_50: Array<Migration> = (46..49).map { version ->
+    object : Migration(version, 50) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.addForkAndUpstreamColumns()
+            connection.addColumnIfMissing("LockerEntryEntity", "manifestVersion", "INTEGER NOT NULL DEFAULT 1")
+            connection.execSQL(
+                """CREATE TABLE IF NOT EXISTS `AppPermission` (
+                    `appUuid` TEXT NOT NULL, `permission` TEXT NOT NULL, `granted` INTEGER,
+                    `requestedAtMs` INTEGER NOT NULL, `decidedAtMs` INTEGER,
+                    `lastUsedAtMs` INTEGER, `seenAtMs` INTEGER,
+                    PRIMARY KEY(`appUuid`, `permission`))"""
+            )
+            connection.addColumnIfMissing("AppPermission", "seenAtMs", "INTEGER")
+        }
+    }
+}.toTypedArray()
+
 fun getRoomDatabase(ctx: AppContext): Database = getDatabaseBuilder(ctx).withMigrations().build()
 
 internal fun RoomDatabase.Builder<Database>.withMigrations(): RoomDatabase.Builder<Database> =
-    addMigrations(MIGRATION_39_40, MIGRATION_46_47, MIGRATION_47_48)
+    addMigrations(MIGRATION_39_40, *MIGRATIONS_TO_50)
         .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         // V7 required a full re-create.
         .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3, 4, 5, 6, 7, 8, 9)

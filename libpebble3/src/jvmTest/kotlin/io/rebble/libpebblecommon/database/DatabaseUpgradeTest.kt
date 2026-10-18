@@ -23,7 +23,7 @@ class DatabaseUpgradeTest {
     private val schemaDir = File("schema/io.rebble.libpebblecommon.database.Database")
 
     // Schemas shipped by fork releases whose version number clashes with a different upstream one.
-    private val forkSchemas = listOf("fork-schemas/47.json")
+    private val forkSchemas = listOf("fork-schemas/46.json", "fork-schemas/47.json", "fork-schemas/48.json")
 
     @Test
     fun everyPreviousSchemaUpgradesToCurrent() {
