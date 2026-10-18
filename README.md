@@ -54,6 +54,16 @@ CI firmware** in the app's Debug settings to check the latest CI prerelease inst
 Update checks recognize installed firmware by its commit, including builds published under a
 different release label, and compare firmware commit times instead of release publication times.
 
+### Upgrading to 1.15.0.2
+
+Install over the previous fork APK without uninstalling. Database upgrades preserve health,
+battery history, watch settings, and upstream permission decisions.
+
+App-data backup now requires PebbleOS `v4.41.0-m0wer.1` or newer. Older firmware remains usable,
+but backup is unavailable. Optional sunrise/sunset pin-kind attributes are omitted unless the
+watch advertises both the upstream timeline capability and the new fork backup capability;
+this also limits those optional attributes on upstream firmware.
+
 To build locally, copy `androidApp/src/google-services-dummy.json` to
 `androidApp/src/google-services.json`, then run `./gradlew :androidApp:assembleDebug`. iOS builds
 require macOS, Xcode, CocoaPods, and a physical device for watch connectivity.
