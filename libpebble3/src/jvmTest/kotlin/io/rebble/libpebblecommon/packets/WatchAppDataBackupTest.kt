@@ -38,10 +38,10 @@ class WatchAppDataBackupTest {
     }
 
     @Test
-    fun `capability bit 25 encodes and decodes`() {
+    fun `capability bit 27 encodes and decodes`() {
         val flags = ProtocolCapsFlag.makeFlags(listOf(ProtocolCapsFlag.SupportsWatchAppDataBackup))
 
-        assertUByteArrayEquals(ubyteArrayOf(0u, 0u, 0u, 2u, 0u, 0u, 0u, 0u), flags)
+        assertUByteArrayEquals(ubyteArrayOf(0u, 0u, 0u, 8u, 0u, 0u, 0u, 0u), flags)
         assertEquals(
             setOf(ProtocolCapsFlag.SupportsWatchAppDataBackup),
             ProtocolCapsFlag.fromFlags(flags),

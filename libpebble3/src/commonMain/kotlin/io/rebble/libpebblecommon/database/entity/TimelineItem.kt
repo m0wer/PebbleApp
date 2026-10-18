@@ -205,7 +205,10 @@ interface DbTimelineItem : BlobDbItem {
             flags = TimelineItem.Flag.makeFlags(content.flags),
             layout = content.layout,
             attributes = content.attributes.filterNot { attr ->
-                attr.attribute.requiredCapability?.let { it !in params.capabilities } == true
+                // Old fork watches used bit 25 for backup; bit 27 disambiguates the new layout.
+                attr.attribute.requiredCapability?.let { it !in params.capabilities } == true ||
+                    (attr.attribute == TimelineAttribute.WeatherPinKind &&
+                        ProtocolCapsFlag.SupportsWatchAppDataBackup !in params.capabilities)
             }.map { it.asAttribute() },
             actions = content.actions.map { it.asAction() },
         )

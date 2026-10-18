@@ -60,11 +60,33 @@ class TimelineAttributeCapabilityTest {
         assertEquals(listOf(TimelineAttribute.Title.id), sentAttributeIds(emptySet()))
     }
 
+    // Old fork firmware advertised bit 25 for backup, so bit 25 alone is ambiguous.
     @Test
-    fun weatherPinKindIsSentWithTheCapability() {
+    fun weatherPinKindIsDroppedWithOnlyTheTimelineCapability() {
+        assertEquals(
+            listOf(TimelineAttribute.Title.id),
+            sentAttributeIds(setOf(ProtocolCapsFlag.SupportsUnknownTimelineAttributes)),
+        )
+    }
+
+    @Test
+    fun weatherPinKindIsDroppedWithOnlyTheBackupCapability() {
+        assertEquals(
+            listOf(TimelineAttribute.Title.id),
+            sentAttributeIds(setOf(ProtocolCapsFlag.SupportsWatchAppDataBackup)),
+        )
+    }
+
+    @Test
+    fun weatherPinKindIsSentWithBothCapabilities() {
         assertEquals(
             listOf(TimelineAttribute.Title.id, TimelineAttribute.WeatherPinKind.id),
-            sentAttributeIds(setOf(ProtocolCapsFlag.SupportsUnknownTimelineAttributes)),
+            sentAttributeIds(
+                setOf(
+                    ProtocolCapsFlag.SupportsUnknownTimelineAttributes,
+                    ProtocolCapsFlag.SupportsWatchAppDataBackup,
+                )
+            ),
         )
     }
 }
