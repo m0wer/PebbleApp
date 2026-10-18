@@ -6,6 +6,7 @@ import io.rebble.libpebblecommon.connection.PebbleConnectionEvent
 import io.rebble.libpebblecommon.connection.PebbleDevice
 import io.rebble.libpebblecommon.connection.Watches
 import io.rebble.libpebblecommon.database.dao.LockerAppPermissionDao
+import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.LockerAppPermission
 import io.rebble.libpebblecommon.di.LibPebbleCoroutineScope
 import io.rebble.libpebblecommon.metadata.pbw.appinfo.PbwAppInfo
@@ -380,6 +381,7 @@ private object NoWatches : Watches {
     override val watches = MutableStateFlow(emptyList<PebbleDevice>())
     override val connectionEvents = emptyFlow<PebbleConnectionEvent>()
     override fun watchesDebugState() = ""
+    override suspend fun getKnownWatches() = emptyList<KnownWatchItem>()
 }
 
 private fun permissions(

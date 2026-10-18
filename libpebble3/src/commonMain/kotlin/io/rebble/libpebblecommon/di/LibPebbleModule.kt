@@ -436,6 +436,7 @@ fun initKoin(
                         get(),
                         get(),
                         get(),
+                        watchSettingsBackupDao = get(),
                     )
                 } bind LibPebble::class
                 single { RealConnectionScopeFactory(koin) } bind ConnectionScopeFactory::class
