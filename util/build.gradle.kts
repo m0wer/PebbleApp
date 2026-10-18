@@ -156,10 +156,35 @@ kotlin {
 
 }
 
+// Android host tests load the bundled SQLite JNI library from java.library.path, so provide the
+// desktop build from the matching JVM artifact.
+val hostTestSqliteNatives by configurations.creating { isTransitive = false }
+
 dependencies {
     add("kspAndroid", libs.room.compiler)
     add("kspIosArm64", libs.room.compiler)
     add("kspIosSimulatorArm64", libs.room.compiler)
+    hostTestSqliteNatives("androidx.sqlite:sqlite-bundled-jvm:${libs.versions.sqlite.get()}")
+}
+
+val extractHostTestSqliteNatives by tasks.registering(Sync::class) {
+    from({ hostTestSqliteNatives.map { zipTree(it) } }) { include("natives/**") }
+    into(layout.buildDirectory.dir("hostTestSqliteNatives"))
+}
+
+tasks.withType<Test>().matching { "HostTest" in it.name }.configureEach {
+    dependsOn(extractHostTestSqliteNatives)
+    val os = System.getProperty("os.name").lowercase()
+    val arch = if (System.getProperty("os.arch") in setOf("aarch64", "arm64")) "arm64" else "x64"
+    val platform = when {
+        "mac" in os -> "osx_$arch"
+        "win" in os -> "windows_$arch"
+        else -> "linux_$arch"
+    }
+    val natives = layout.buildDirectory.dir("hostTestSqliteNatives/natives/$platform")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf("-Djava.library.path=${natives.get().asFile.absolutePath}")
+    })
 }
 
 val headSha by lazy {
