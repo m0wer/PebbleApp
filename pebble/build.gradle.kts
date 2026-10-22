@@ -90,6 +90,7 @@ kotlin {
                 implementation(libs.kermit)
                 implementation(project(":util"))
                 implementation(libs.serialization)
+                implementation(libs.serialization.json.io)
                 implementation(libs.kotlinx.datetime)
                 implementation(libs.settings)
                 implementation(libs.settings.test)

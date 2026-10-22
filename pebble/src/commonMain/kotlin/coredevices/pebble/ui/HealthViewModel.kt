@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.io.Sink
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -147,7 +148,7 @@ class HealthViewModel(
     fun navigateBack() { dateOffset-- }
     fun navigateForward() { if (dateOffset < 0) dateOffset++ }
 
-    suspend fun exportRawData(): String = healthDataExporter.export()
+    suspend fun exportRawData(sink: Sink) = healthDataExporter.export(sink)
 
     suspend fun exportHealthBatteryBackup(): String = healthBatteryBackupRepository.export()
 

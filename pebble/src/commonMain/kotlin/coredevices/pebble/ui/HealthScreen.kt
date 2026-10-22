@@ -165,14 +165,13 @@ fun HealthScreen(topBarParams: TopBarParams, nav: NavBarNav) {
                         isExporting = true
                         try {
                             val file = withContext(Dispatchers.Default) {
-                                val json = vm.exportRawData()
                                 getTempFilePath(
                                     appContext,
                                     "pebble-health-export-v1.json",
                                     HEALTH_EXPORT_CACHE_DIRECTORY,
                                 ).also {
                                     SystemFileSystem.sink(it, append = false).buffered().use { sink ->
-                                        sink.writeString(json)
+                                        vm.exportRawData(sink)
                                     }
                                 }
                             }

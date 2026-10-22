@@ -7,7 +7,15 @@ import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.database.entity.TransportType
 import io.rebble.libpebblecommon.health.SleepDiagnosticFlags
+import kotlinx.coroutines.test.runTest
+import kotlinx.io.Buffer
+import kotlinx.io.IOException
+import kotlinx.io.RawSink
+import kotlinx.io.buffered
+import kotlinx.io.readString
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.koin.core.module.dsl.singleOf
@@ -15,6 +23,68 @@ import org.koin.dsl.koinApplication
 import org.koin.dsl.module
 
 class HealthDataExporterTest {
+    @Test
+    fun streamingExportMatchesExistingJsonExactly() {
+        val minutes = listOf(
+            HealthDataEntity(120, 2, 0, 0, 0, 0, 0, 0, 0),
+            HealthDataEntity(
+                60, 1, 0, 0, 0, 0, 0, 0, 0,
+                pluggedIn = 1, sleepIntentHint = 1, timezoneOffset15Minutes = -4,
+                sleepScore = 4_294_967_295L,
+                sleepFlags = SleepDiagnosticFlags.SCORE_VALID or SleepDiagnosticFlags.FRAGMENT_ACCEPTED,
+            ),
+        )
+        val overlays = listOf(
+            OverlayDataEntity(120, 30, 2, 0, 0, 0, 0, 0),
+            OverlayDataEntity(120, 10, 1, 0, 0, 0, 0, 0),
+        )
+        val watches = listOf(
+            KnownWatchItem("socket", TransportType.Socket, "Watch \"One\"\n雪", "v4.3", "SERIAL", false),
+            KnownWatchItem("bluetooth", TransportType.BluetoothLe, "Watch Two", "v4.2", "SERIAL", false),
+        )
+        val sink = Buffer()
+
+        HealthDataExportFormatter.write(minutes, overlays, watches, sink)
+
+        assertEquals(HealthDataExportFormatter.format(minutes, overlays, watches), sink.readString())
+        HealthDataExportFormatter.write(emptyList(), emptyList(), emptyList(), sink)
+        assertEquals(HealthDataExportFormatter.format(emptyList(), emptyList(), emptyList()), sink.readString())
+    }
+
+    @Test
+    fun exporterStreamsLargeHistoryInBoundedChunks() = runTest {
+        val minutes = List(80_470) { index ->
+            HealthDataEntity(
+                index * 60L, 0, 0, 0, 0, 0, 0, 0, 0,
+                sleepScore = 50,
+                sleepFlags = SleepDiagnosticFlags.SCORE_VALID,
+            )
+        }
+        val exporter = HealthDataExporter(object : LibPebble by FakeLibPebble() {
+            override suspend fun getAllHealthData() = minutes
+        })
+        val rawSink = CountingSink()
+
+        rawSink.buffered().use { exporter.export(it) }
+
+        assertTrue(rawSink.bytesWritten > 90_000_000, "All expanded diagnostic records must be exported")
+        assertTrue(rawSink.largestWrite < 65_536, "JSON must reach the file incrementally")
+    }
+
+    @Test
+    fun streamingExportPropagatesFileWriteFailure() {
+        val sink = object : RawSink {
+            override fun write(source: Buffer, byteCount: Long): Unit = throw IOException("Disk full")
+            override fun flush() = Unit
+            override fun close() = Unit
+        }.buffered()
+
+        assertFailsWith<IOException> {
+            HealthDataExportFormatter.write(emptyList(), emptyList(), emptyList(), sink)
+            sink.flush()
+        }
+    }
+
     @Test
     fun exporterResolvesFromApplicationKoin() {
         val application = koinApplication {
@@ -108,4 +178,18 @@ class HealthDataExporterTest {
         assertTrue(output.contains("\"steps\": 25"))
         assertTrue(output.contains("\"sleepMinute\": false"))
     }
+}
+
+private class CountingSink : RawSink {
+    var bytesWritten = 0L
+    var largestWrite = 0L
+
+    override fun write(source: Buffer, byteCount: Long) {
+        bytesWritten += byteCount
+        largestWrite = maxOf(largestWrite, byteCount)
+        source.skip(byteCount)
+    }
+
+    override fun flush() = Unit
+    override fun close() = Unit
 }

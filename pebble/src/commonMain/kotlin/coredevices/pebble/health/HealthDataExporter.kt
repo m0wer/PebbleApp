@@ -6,17 +6,21 @@ import io.rebble.libpebblecommon.database.entity.KnownWatchItem
 import io.rebble.libpebblecommon.database.entity.OverlayDataEntity
 import io.rebble.libpebblecommon.health.SleepDiagnosticFlags
 import io.rebble.libpebblecommon.health.hasSleepDiagnosticFlag
+import kotlinx.io.Sink
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.io.encodeToSink
 
 class HealthDataExporter(
     private val libPebble: LibPebble,
 ) {
-    suspend fun export(): String = HealthDataExportFormatter.format(
+    suspend fun export(sink: Sink) = HealthDataExportFormatter.write(
         libPebble.getAllHealthData(),
         libPebble.getAllOverlayEntries(),
         libPebble.getKnownWatches(),
+        sink,
     )
 }
 
@@ -30,7 +34,21 @@ object HealthDataExportFormatter {
         minutes: List<HealthDataEntity>,
         overlays: List<OverlayDataEntity>,
         watches: List<KnownWatchItem>,
-    ): String = json.encodeToString(
+    ): String = json.encodeToString(exportData(minutes, overlays, watches))
+
+    @OptIn(ExperimentalSerializationApi::class)
+    fun write(
+        minutes: List<HealthDataEntity>,
+        overlays: List<OverlayDataEntity>,
+        watches: List<KnownWatchItem>,
+        sink: Sink,
+    ) = json.encodeToSink(exportData(minutes, overlays, watches), sink)
+
+    private fun exportData(
+        minutes: List<HealthDataEntity>,
+        overlays: List<OverlayDataEntity>,
+        watches: List<KnownWatchItem>,
+    ) =
         HealthDataExport(
             minutes = minutes.sortedBy { it.timestamp }.map(::MinuteExport),
             overlays = overlays.sortedWith(compareBy<OverlayDataEntity> { it.startTime }.thenBy { it.type })
@@ -39,7 +57,6 @@ object HealthDataExportFormatter {
                 compareBy<KnownWatchItem> { it.serial }.thenBy { it.name }.thenBy { it.runningFwVersion }
             ).map { WatchExport(it.name, it.serial, it.runningFwVersion) },
         )
-    )
 }
 
 @Serializable
